@@ -1,0 +1,205 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #232f3e; /* Amazon 主色调 - 深蓝色 */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: #ff9900; /* Amazon 强调色 - 橙色 */
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: #146eb4; /* Amazon 辅助色 - 亮蓝色 */
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: #e6e6e6; /* 浅灰色边框 */
+  --input: #f0f2f2; /* Amazon 输入框背景色 */
+  --ring: #232f3e; /* 使用主色调作为聚焦环的颜色 */
+  --chart-1: #232f3e;
+  --chart-2: #ff9900;
+  --chart-3: #146eb4;
+  --chart-4: #37475a;
+  --chart-5: #f3a847;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: #232f3e;
+  --sidebar-primary: #232f3e;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: #ff9900;
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: #e6e6e6;
+  --sidebar-ring: #232f3e;
+}
+
+.dark {
+  --background: #232f3e; /* Amazon 深色背景 */
+  --foreground: #ffffff;
+  --card: #37475a; /* 稍微亮一点的深色 */
+  --card-foreground: #ffffff;
+  --popover: #37475a;
+  --popover-foreground: #ffffff;
+  --primary: #ff9900; /* 暗色模式下使用橙色作为主色调 */
+  --primary-foreground: #232f3e;
+  --secondary: #146eb4; /* 暗色模式下的次要颜色 */
+  --secondary-foreground: #ffffff;
+  --muted: #37475a;
+  --muted-foreground: #a9a9a9;
+  --accent: #f3a847; /* 稍微亮一点的橙色作为强调色 */
+  --accent-foreground: #232f3e;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #ff9900;
+  --chart-1: #ff9900;
+  --chart-2: #146eb4;
+  --chart-3: #f3a847;
+  --chart-4: #37475a;
+  --chart-5: #ffffff;
+  --sidebar: #37475a;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ff9900;
+  --sidebar-primary-foreground: #232f3e;
+  --sidebar-accent: #146eb4;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: #ff9900;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Animation Delays */
+.animation-delay-200 {
+  animation-delay: 0.2s;
+}
+.animation-delay-400 {
+  animation-delay: 0.4s;
+}
+.animation-delay-600 {
+  animation-delay: 0.6s;
+}
+.animation-delay-800 {
+  animation-delay: 0.8s;
+}
+
+/* Keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fadeInUpSmooth {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animation Classes */
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+.animate-fadeInUp {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+.animate-fadeInUpSmooth {
+  animation: fadeInUpSmooth 0.3s ease-out forwards;
+}
+
+/* Ensure your body or html has a dark background if not already set, e.g.: */
+/* body { background-color: #0c0c0d; } */ /* This is similar to neutral-950 */
+
+/* 自定义滚动条样式 */
+@layer utilities {
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: #4b5563 #1f2937;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: #1f2937;
+    border-radius: 4px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background-color: #4b5563;
+    border-radius: 4px;
+    border: 2px solid #1f2937;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background-color: #6b7280;
+  }
+}

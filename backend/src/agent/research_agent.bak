@@ -1,0 +1,1209 @@
+"""Research Agent system using Strands Agents for comprehensive web research."""
+
+import os
+import asyncio
+import logging
+from datetime import datetime
+from typing import Dict, Any, List, AsyncGenerator, Optional, Union, Literal, Tuple
+from strands import Agent
+from strands.models import BedrockModel
+from dotenv import load_dotenv
+
+# Import our enhanced search tools
+from .tools.enhanced_search import enhanced_web_search, get_page_content
+from .tools.web_search import generate_search_queries
+from .configuration import Configuration
+from .utils.language_detector import detect_query_language
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+
+class ResearchAgentSystem:
+    """Multi-agent research system using Strands Agents for comprehensive web research."""
+    
+    # Constants for status phrases that indicate additional research is needed
+    ADDITIONAL_RESEARCH_PHRASES = [
+        "additional research needed", 
+        "more information required", 
+        "knowledge gap",
+        "insufficient information"
+    ]
+    def __init__(
+        self,
+        config: Optional[Configuration] = None,
+        language: str = "auto"
+    ):
+        """
+        Initialize the research agent system.
+
+        Args:
+            config: Configuration object with model IDs for different stages
+            language: The language to use for output (default: "auto" for auto-detection)
+        """
+        self.config = config or Configuration()
+        self.language = language
+        self.auto_detect_language = (language == "auto")
+
+        # Use query generator model for researcher agent
+        self.researcher_model = self._create_bedrock_model(self.config.query_generator_model)
+        # Use reflection model for analyst agent
+        self.analyst_model = self._create_bedrock_model(self.config.reflection_model)
+        # Use answer model for writer agent
+        self.writer_model = self._create_bedrock_model(self.config.answer_model)
+
+        # Initialize agents with default language (will be recreated if language is auto-detected)
+        self._current_language = "chinese" if self.auto_detect_language else self.language
+        self.researcher_agent = self._create_researcher_agent()
+        self.analyst_agent = self._create_analyst_agent()
+        self.writer_agent = self._create_writer_agent()
+        logger.info(f"Research agent system initialized with models: researcher={self.config.query_generator_model}, analyst={self.config.reflection_model}, writer={self.config.answer_model}")
+        
+    def _create_bedrock_model(self, model_id: str) -> BedrockModel:
+        """
+        Create and configure the Bedrock model.
+        
+        Args:
+            model_id: The Bedrock model ID to use
+            
+        Returns:
+            BedrockModel: Configured model instance
+        """
+        # Create an actual model instance instead of just returning the ID string
+        try:
+            return BedrockModel(model_id=model_id)
+        except Exception as e:
+            logger.error(f"Failed to create Bedrock model {model_id}: {e}")
+            raise
+
+    def _detect_and_set_language(self, query: str) -> str:
+        """
+        Detect the language of the query and update agents if needed.
+
+        Args:
+            query: The query text to analyze
+
+        Returns:
+            str: The detected or configured language
+        """
+        if self.auto_detect_language:
+            detected_language = detect_query_language(query)
+            logger.info(f"Auto-detected language: {detected_language} for query: '{query[:50]}...'")
+
+            # Only recreate agents if language has changed
+            if detected_language != self._current_language:
+                logger.info(f"Language changed from {self._current_language} to {detected_language}, recreating agents")
+                self._current_language = detected_language
+                self.researcher_agent = self._create_researcher_agent()
+                self.analyst_agent = self._create_analyst_agent()
+                self.writer_agent = self._create_writer_agent()
+
+            return detected_language
+        else:
+            return self.language
+
+    def _generate_initialization_info(self, query: str, detected_language: str, max_research_loops: int) -> str:
+        """
+        Generate comprehensive initialization information for the research process.
+
+        Args:
+            query: The research query
+            detected_language: The detected language
+            max_research_loops: Maximum research loops
+
+        Returns:
+            str: Formatted initialization information
+        """
+        from .utils.language_detector import LanguageDetector
+        language_display_name = LanguageDetector.get_language_display_name(detected_language)
+
+        # Analyze query characteristics
+        query_length = len(query)
+        word_count = len(query.split())
+        query_type = self._analyze_query_type(query)
+
+        # Get system configuration info
+        models_info = {
+            'researcher': self.config.query_generator_model.split(':')[0].split('.')[-1],
+            'analyst': self.config.reflection_model.split(':')[0].split('.')[-1],
+            'writer': self.config.answer_model.split(':')[0].split('.')[-1]
+        }
+
+        # Generate search strategy based on query
+        search_strategy = self._generate_search_strategy(query, detected_language)
+
+        initialization_info = f"""## 🔍 Research Initialization
+
+### 📋 Query Analysis
+- **Research Topic**: {query}
+- **Query Type**: {query_type}
+- **Query Length**: {query_length} characters ({word_count} words)
+- **Detected Language**: {language_display_name} ({detected_language})
+- **Auto-Detection**: {'✅ Enabled' if self.auto_detect_language else '❌ Disabled'}
+
+### 🤖 AI Agent Configuration
+- **Researcher Agent**: {models_info['researcher']} (Information Collection)
+- **Analyst Agent**: {models_info['analyst']} (Quality Assessment)
+- **Writer Agent**: {models_info['writer']} (Report Generation)
+- **Max Research Loops**: {max_research_loops}
+
+### 🎯 Search Strategy
+{search_strategy}
+
+### 📊 Expected Process Flow
+1. **Information Collection** (15-35%) - Multi-source web search
+2. **Quality Analysis** (35-65%) - Source verification & gap identification
+3. **Additional Research** (65-85%) - Targeted follow-up searches (if needed)
+4. **Report Generation** (85-100%) - Comprehensive report synthesis
+
+### ⏰ Session Information
+- **Start Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **Session ID**: {datetime.now().strftime('%Y%m%d_%H%M%S')}
+
+---
+🚀 **Initializing research process...**"""
+
+        return initialization_info
+
+    def _analyze_query_type(self, query: str) -> str:
+        """
+        Analyze the type of research query.
+
+        Args:
+            query: The research query
+
+        Returns:
+            str: Query type description
+        """
+        query_lower = query.lower()
+
+        # Question patterns
+        question_words = ['what', 'how', 'why', 'when', 'where', 'who', 'which',
+                         '什么', '如何', '怎么', '为什么', '什么时候', '哪里', '谁', '哪个',
+                         '何', 'なに', 'どう', 'なぜ', 'いつ', 'どこ', 'だれ', 'どの',
+                         '무엇', '어떻게', '왜', '언제', '어디', '누구', '어느']
+
+        if any(word in query_lower for word in question_words):
+            if any(word in query_lower for word in ['how', '如何', '怎么', 'どう', '어떻게']):
+                return "📚 How-to / Process Inquiry"
+            elif any(word in query_lower for word in ['what', '什么', 'なに', '무엇']):
+                return "🔍 Definition / Concept Research"
+            elif any(word in query_lower for word in ['why', '为什么', 'なぜ', '왜']):
+                return "🤔 Causal Analysis"
+            else:
+                return "❓ General Question"
+
+        # Topic research patterns
+        elif any(word in query_lower for word in ['trend', 'development', 'future', 'latest', 'recent',
+                                                 '趋势', '发展', '未来', '最新', '最近',
+                                                 'トレンド', '発展', '未来', '最新', '最近',
+                                                 '트렌드', '발전', '미래', '최신', '최근']):
+            return "📈 Trend Analysis"
+
+        elif any(word in query_lower for word in ['compare', 'vs', 'versus', 'difference',
+                                                 '比较', '对比', '区别',
+                                                 '比較', '対比', '違い',
+                                                 '비교', '대비', '차이']):
+            return "⚖️ Comparative Analysis"
+
+        elif any(word in query_lower for word in ['market', 'industry', 'business', 'company',
+                                                 '市场', '行业', '商业', '公司',
+                                                 '市場', '業界', 'ビジネス', '会社',
+                                                 '시장', '업계', '비즈니스', '회사']):
+            return "💼 Market/Business Research"
+
+        else:
+            return "📖 General Topic Research"
+
+    def _generate_search_strategy(self, query: str, language: str) -> str:
+        """
+        Generate a search strategy description based on query and language.
+
+        Args:
+            query: The research query
+            language: The detected language
+
+        Returns:
+            str: Search strategy description
+        """
+        query_type = self._analyze_query_type(query)
+
+        # Base strategy
+        strategy = f"""**Primary Approach**: Multi-source information gathering
+**Language Focus**: {language} sources with English supplements
+**Search Engines**: Tavily, Google, DuckDuckGo, Wikipedia
+**Source Types**: Academic papers, news articles, official documents, expert blogs"""
+
+        # Add specific strategies based on query type
+        if "Definition" in query_type:
+            strategy += "\n**Specialized Focus**: Authoritative definitions, academic sources, official documentation"
+        elif "Trend" in query_type:
+            strategy += "\n**Specialized Focus**: Recent publications, market reports, industry analyses"
+        elif "Comparative" in query_type:
+            strategy += "\n**Specialized Focus**: Side-by-side comparisons, feature matrices, expert reviews"
+        elif "Market" in query_type:
+            strategy += "\n**Specialized Focus**: Market research, financial reports, industry statistics"
+        elif "How-to" in query_type:
+            strategy += "\n**Specialized Focus**: Step-by-step guides, tutorials, best practices"
+
+        # Add language-specific considerations
+        if language == "chinese":
+            strategy += "\n**Regional Sources**: 百度, 知乎, 学术搜索, 官方网站"
+        elif language == "japanese":
+            strategy += "\n**Regional Sources**: Yahoo Japan, Goo, J-STAGE, 政府サイト"
+        elif language == "korean":
+            strategy += "\n**Regional Sources**: Naver, Daum, KISS, 정부사이트"
+
+        return strategy
+
+    def _conduct_research_with_summary(self, query: str) -> Tuple[str, List[Dict[str, Any]]]:
+        """
+        Conduct research and capture search summaries.
+
+        Args:
+            query: The research question or topic
+
+        Returns:
+            Tuple of (research_findings, search_summaries)
+        """
+        try:
+            logger.info(f"Conducting research with summary capture on: '{query}'")
+
+            # For now, conduct regular research and generate mock search summaries
+            # This is a simplified implementation that can be enhanced later
+            research_findings = self.researcher_agent(
+                f"Research the following topic comprehensively: '{query}'. "
+                f"Use your tools to gather information from multiple reliable sources."
+            )
+
+            # Generate mock search summaries based on the research findings
+            search_summaries = self._generate_mock_search_summaries(query, str(research_findings))
+
+            return str(research_findings), search_summaries
+
+        except Exception as e:
+            logger.error(f"Error during research with summary: {e}")
+            raise RuntimeError(f"Research step failed: {str(e)}")
+
+    def _generate_mock_search_summaries(self, query: str, research_findings: str) -> List[Dict[str, Any]]:
+        """
+        Generate mock search summaries based on research findings.
+        This is a temporary implementation until we can properly capture search results.
+
+        Args:
+            query: The research query
+            research_findings: The research findings text
+
+        Returns:
+            List of mock search summary data
+        """
+        # Analyze the research findings to extract information
+        findings_length = len(research_findings)
+        word_count = len(research_findings.split())
+
+        # Count URLs in findings (rough estimate of sources)
+        import re
+        urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', research_findings)
+        unique_domains = list(set([url.split('/')[2] if '://' in url else 'unknown' for url in urls]))
+
+        # Generate mock summary
+        mock_summary = {
+            'query': query,
+            'total_results': min(max(word_count // 100, 1), 10),  # Estimate based on content
+            'sources': ['Web Search', 'Academic Sources', 'News Articles'][:min(3, max(1, len(unique_domains)))],
+            'domains': unique_domains[:5] if unique_domains else ['example.com', 'research.org'],
+            'search_method': '_try_tavily_search',
+            'timestamp': datetime.now().isoformat(),
+            'status': 'success',
+            'results_preview': [
+                {
+                    'title': f"Research Result for {query}"[:100],
+                    'domain': unique_domains[0] if unique_domains else 'research.org',
+                    'snippet': research_findings[:150] + '...' if len(research_findings) > 150 else research_findings,
+                    'source': 'Web Search'
+                }
+            ]
+        }
+
+        return [mock_summary]
+
+    def _generate_search_summary_output(self, search_summaries: List[Dict[str, Any]], query: str) -> str:
+        """
+        Generate a formatted output of search summaries for the frontend.
+
+        Args:
+            search_summaries: List of search summary data
+            query: The original query
+
+        Returns:
+            str: Formatted search summary output
+        """
+        if not search_summaries:
+            return f"## 🔍 Search Results Summary\n\n**Query**: {query}\n**Status**: No search results available"
+
+        total_results = sum(summary.get('total_results', 0) for summary in search_summaries)
+        all_sources = []
+        all_domains = []
+        successful_searches = 0
+
+        for summary in search_summaries:
+            if summary.get('status') == 'success':
+                successful_searches += 1
+                all_sources.extend(summary.get('sources', []))
+                all_domains.extend(summary.get('domains', []))
+
+        # Remove duplicates and limit
+        unique_sources = list(set(all_sources))[:10]
+        unique_domains = list(set(all_domains))[:10]
+
+        output = f"""## 🔍 Search Results Summary
+
+### 📊 Overview
+- **Query**: {query}
+- **Total Results Found**: {total_results}
+- **Successful Searches**: {successful_searches}/{len(search_summaries)}
+- **Information Sources**: {len(unique_sources)} different sources
+- **Websites Accessed**: {len(unique_domains)} domains
+
+### 🌐 Sources Used
+{', '.join(unique_sources) if unique_sources else 'No sources available'}
+
+### 🔗 Top Domains
+{', '.join(unique_domains) if unique_domains else 'No domains available'}
+
+### 📋 Search Details"""
+
+        for i, summary in enumerate(search_summaries, 1):
+            if summary.get('status') == 'success':
+                method = summary.get('search_method', 'Unknown').replace('_try_', '').replace('_search', '').title()
+                results_count = summary.get('total_results', 0)
+                timestamp = summary.get('timestamp', '')
+
+                output += f"""
+
+#### Search {i} - {method}
+- **Results**: {results_count} items found
+- **Time**: {timestamp.split('T')[1][:8] if 'T' in timestamp else 'Unknown'}
+- **Status**: ✅ Success"""
+
+                # Add preview of top results
+                previews = summary.get('results_preview', [])
+                if previews:
+                    output += "\n- **Top Results**:"
+                    for j, preview in enumerate(previews[:2], 1):
+                        title = preview.get('title', 'N/A')[:60]
+                        domain = preview.get('domain', 'N/A')
+                        output += f"\n  {j}. {title}... ({domain})"
+            else:
+                output += f"""
+
+#### Search {i}
+- **Status**: ❌ Failed
+- **Error**: {summary.get('error', 'Unknown error')}"""
+
+        output += f"""
+
+### ⏰ Collection Time
+**Completed**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+✅ **Search phase completed successfully**"""
+
+        return output
+    
+    def _create_researcher_agent(self) -> Agent:
+        """
+        Create the researcher agent with web search capabilities.
+        
+        Returns:
+            Agent: Configured researcher agent
+        """
+        system_prompt = f"""You are a Research Agent specialized in gathering comprehensive information from the web.
+
+Current date: {datetime.now().strftime("%B %d, %Y")}
+
+Your responsibilities:
+1. Generate optimized search queries for the given research topic
+2. Conduct thorough web searches using multiple relevant queries
+3. **CRITICALLY IMPORTANT**: After getting search results, you MUST use get_page_content to extract detailed information from the most relevant and authoritative sources
+4. Gather comprehensive information details from reliable and diverse sources
+5. Extract key facts, statistics, and insights from full page content
+6. Provide source URLs for all information gathered
+7. Organize findings into a coherent, structured format
+8. Generate report in {self._current_language}
+
+**MANDATORY WORKFLOW**:
+1. First, use generate_search_queries to create multiple targeted search queries
+2. Then, use enhanced_web_search to find relevant sources
+3. **ALWAYS follow up by using get_page_content on the most promising URLs from search results**
+4. Extract detailed information from at least 2-3 key sources using get_page_content
+5. Synthesize information from both search summaries and detailed page content
+
+Guidelines:
+- Use multiple search queries to get comprehensive coverage
+- **ALWAYS extract detailed content from key sources using get_page_content**
+- Focus on recent and authoritative sources
+- Include source URLs in your findings
+- Keep findings organized and under 1500 words
+- Prioritize factual accuracy over speed
+- Don't rely solely on search result snippets - get full page content for depth
+
+Tools available:
+- generate_search_queries: Create optimized search queries
+- enhanced_web_search: Search the web for information (with multiple fallback options)
+- get_page_content: Extract detailed content from specific pages (USE THIS AFTER SEARCH)
+"""
+        
+        try:
+            return Agent(
+                model=self.researcher_model,
+                system_prompt=system_prompt,
+                tools=[generate_search_queries, enhanced_web_search, get_page_content],
+                callback_handler=None  # Suppress intermediate output
+            )
+        except Exception as e:
+            logger.error(f"Failed to create researcher agent: {e}")
+            raise
+    
+    def _create_analyst_agent(self) -> Agent:
+        """
+        Create the analyst agent for information verification and analysis.
+        
+        Returns:
+            Agent: Configured analyst agent
+        """
+        system_prompt = f"""You are an Analyst Agent specialized in verifying information and extracting insights.
+
+Current date: {datetime.now().strftime("%B %d, %Y")}
+
+Your responsibilities:
+1. Analyze research findings for accuracy and reliability
+2. Identify key insights and patterns in the information
+3. Assess the credibility of sources
+4. Determine if additional research is needed
+5. Highlight any knowledge gaps or conflicting information
+
+Guidelines:
+- Rate information reliability on a scale of 1-5
+- Identify the most important insights (3-5 key points)
+- Note any contradictions or uncertainties
+- Suggest areas for additional research if needed
+- Keep analysis focused and under 600 words
+- Provide analysis in {self._current_language}
+
+Analysis framework:
+- Factual accuracy assessment
+- Source credibility evaluation
+- Key insight extraction
+- Knowledge gap identification
+"""
+        
+        try:
+            return Agent(
+                model=self.analyst_model,
+                system_prompt=system_prompt,
+                callback_handler=None  # Suppress intermediate output
+            )
+        except Exception as e:
+            logger.error(f"Failed to create analyst agent: {e}")
+            raise
+    
+    def _create_writer_agent(self) -> Agent:
+        """
+        Create the writer agent for final report generation.
+        
+        Returns:
+            Agent: Configured writer agent
+        """
+        system_prompt = f"""You are a Writer Agent specialized in creating clear, comprehensive research reports.
+
+Current date: {datetime.now().strftime("%B %d, %Y")}
+
+## Role & Deliverable
+Create a comprehensive yet concise research report that transforms complex findings into actionable insights for decision-makers.
+
+## Your Responsibilities
+1. Synthesize diverse research findings into a coherent narrative with clear connections
+2. Structure information in a logical flow that guides readers through complex concepts
+3. Implement rigorous academic citation standards while maintaining readability
+4. Extract and elevate the most significant insights with strategic emphasis
+5. Balance analytical depth with accessibility for varied audience expertise levels
+
+## Report Structure
+1. **Executive Summary** (2-3 impactful sentences capturing core value)
+2. **Key Findings** (3-5 precisely articulated discoveries with implications)
+3. **Detailed Analysis** (organized by thematic sections with supporting evidence)
+4. **Sources & References** (properly formatted citations with evaluation of credibility)
+5. **Conclusion & Recommendations** (synthesis with forward-looking applications)
+
+## Quality Standards
+- Employ precise, jargon-free professional language appropriate for target audience
+- Enhance readability through strategic formatting (bullets, headers, white space,table)
+- Incorporate hyperlinked citations to primary sources where available
+- Maintain conciseness (maximum 1500 words) without sacrificing substance
+- Prioritize practical, implementable conclusions over theoretical discussion
+- Output in {self._current_language}
+"""
+        print(f"🔍 system_prompt: {system_prompt}")
+        try:
+            return Agent(
+                model=self.writer_model,
+                system_prompt=system_prompt,
+                callback_handler=None  # Suppress intermediate output
+            )
+        except Exception as e:
+            logger.error(f"Failed to create writer agent: {e}")
+            raise
+    
+    def _needs_additional_research(self, analysis_text: str) -> bool:
+        """
+        Determine if additional research is needed based on analysis text.
+        
+        Args:
+            analysis_text: The analysis text to check
+            
+        Returns:
+            bool: True if additional research is needed, False otherwise
+        """
+        analysis_text = analysis_text.lower()
+        return any(phrase in analysis_text for phrase in self.ADDITIONAL_RESEARCH_PHRASES)
+    
+    def _conduct_research_step(self, query: str) -> str:
+        """
+        Conduct the initial research step.
+
+        Args:
+            query: The research question or topic
+
+        Returns:
+            str: Research findings
+        """
+        try:
+            logger.info(f"Conducting initial research on: '{query}'")
+            return self.researcher_agent(
+                f"Research the following topic comprehensively: '{query}'. "
+                f"Use your tools to gather information from multiple reliable sources."
+            )
+        except Exception as e:
+            logger.error(f"Error during initial research: {e}")
+            raise RuntimeError(f"Research step failed: {str(e)}")
+
+    async def _conduct_research_step_stream(self, query: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Conduct the initial research step with streaming output.
+
+        Args:
+            query: The research question or topic
+
+        Yields:
+            Dict containing research progress and findings
+        """
+        try:
+            logger.info(f"Conducting streaming initial research on: '{query}'")
+
+            prompt = (
+                f"Research the following topic comprehensively: '{query}'. "
+                f"Use your tools to gather information from multiple reliable sources."
+            )
+
+            research_chunks = []
+            async for event in self.researcher_agent.stream_async(prompt):
+                if "data" in event:
+                    research_chunks.append(event["data"])
+                    yield {
+                        'type': 'research_chunk',
+                        'data': event["data"],
+                        'accumulated': ''.join(research_chunks)
+                    }
+                elif "current_tool_use" in event:
+                    # Tool usage information
+                    tool_info = event["current_tool_use"]
+                    yield {
+                        'type': 'tool_use',
+                        'tool_name': tool_info.get('name', 'Unknown'),
+                        'tool_input': tool_info.get('input', {}),
+                        'tool_id': tool_info.get('toolUseId', '')
+                    }
+                elif "complete" in event and event["complete"]:
+                    yield {
+                        'type': 'research_complete',
+                        'final_result': ''.join(research_chunks)
+                    }
+                    break
+
+        except Exception as e:
+            logger.error(f"Error during streaming research: {e}")
+            yield {
+                'type': 'error',
+                'error': str(e),
+                'message': f"Research step failed: {str(e)}"
+            }
+
+    def _analyze_findings(self, query: str, findings: str) -> str:
+        """
+        Analyze research findings.
+
+        Args:
+            query: The research question or topic
+            findings: The research findings to analyze
+
+        Returns:
+            str: Analysis result
+        """
+        try:
+            logger.info(f"Analyzing findings for query: '{query}'")
+            return self.analyst_agent(
+                f"Analyze these research findings about '{query}' and determine if additional research is needed:\n\n"
+                f"{findings}"
+            )
+        except Exception as e:
+            logger.error(f"Error during analysis: {e}")
+            raise RuntimeError(f"Analysis step failed: {str(e)}")
+
+    async def _analyze_findings_stream(self, query: str, findings: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Analyze research findings with streaming output.
+
+        Args:
+            query: The research question or topic
+            findings: The research findings to analyze
+
+        Yields:
+            Dict containing analysis progress and results
+        """
+        try:
+            logger.info(f"Conducting streaming analysis for query: '{query}'")
+
+            prompt = (
+                f"Analyze these research findings about '{query}' and determine if additional research is needed:\n\n"
+                f"{findings}"
+            )
+
+            analysis_chunks = []
+            async for event in self.analyst_agent.stream_async(prompt):
+                if "data" in event:
+                    analysis_chunks.append(event["data"])
+                    yield {
+                        'type': 'analysis_chunk',
+                        'data': event["data"],
+                        'accumulated': ''.join(analysis_chunks)
+                    }
+                elif "complete" in event and event["complete"]:
+                    yield {
+                        'type': 'analysis_complete',
+                        'final_result': ''.join(analysis_chunks)
+                    }
+                    break
+
+        except Exception as e:
+            logger.error(f"Error during streaming analysis: {e}")
+            yield {
+                'type': 'error',
+                'error': str(e),
+                'message': f"Analysis step failed: {str(e)}"
+            }
+
+    def _conduct_additional_research(self, query: str, analysis: str) -> str:
+        """
+        Conduct additional targeted research based on analysis.
+
+        Args:
+            query: The research question or topic
+            analysis: The analysis result guiding additional research
+
+        Returns:
+            str: Additional research findings
+        """
+        try:
+            logger.info(f"Conducting additional research for query: '{query}'")
+            return self.researcher_agent(
+                f"Based on this analysis, conduct additional targeted research on '{query}':\n\n"
+                f"{analysis}\n\n"
+                f"Focus on filling the identified knowledge gaps."
+            )
+        except Exception as e:
+            logger.error(f"Error during additional research: {e}")
+            raise RuntimeError(f"Additional research step failed: {str(e)}")
+    
+    def _generate_final_report(self, query: str, analysis: str, findings: str) -> str:
+        """
+        Generate the final research report.
+
+        Args:
+            query: The research question or topic
+            analysis: The analysis of research findings
+            findings: The complete research findings
+
+        Returns:
+            str: Final report
+        """
+        try:
+            print(f"Generating final report for query: '{findings}'")
+            return self.writer_agent(
+                f"Create a comprehensive research report on '{query}' based on this analysis:\n\n"
+                f"{analysis}\n\n"
+                f"Research findings:\n{findings}"
+            )
+        except Exception as e:
+            logger.error(f"Error generating final report: {e}")
+            raise RuntimeError(f"Report generation failed: {str(e)}")
+
+    async def _generate_final_report_stream(self, query: str, analysis: str, findings: str) -> AsyncGenerator[str, None]:
+        """
+        Generate the final research report with streaming output using Strands Agent.
+
+        Args:
+            query: The research question or topic
+            analysis: The analysis of research findings
+            findings: The complete research findings
+
+        Yields:
+            str: Chunks of the final report as they are generated
+        """
+        try:
+            logger.info(f"Generating streaming final report for query: '{query}'")
+
+            # Create the prompt for the writer
+            prompt = (
+                f"Create a comprehensive research report on '{query}' based on this analysis:\n\n"
+                f"{analysis}\n\n"
+                f"Research findings:\n{findings}"
+            )
+
+            # Use Strands Agent's stream_async method for native streaming
+            async for event in self.writer_agent.stream_async(prompt):
+                # Handle different event types from Strands Agent
+                if "data" in event:
+                    # Text generation events - yield the text chunks
+                    yield event["data"]
+                elif "complete" in event and event["complete"]:
+                    # Final chunk indicator
+                    logger.info("Final report generation completed")
+                    break
+                elif "error" in event:
+                    # Handle any errors from the agent
+                    logger.error(f"Error in writer agent: {event['error']}")
+                    yield f"抱歉，生成报告时出现错误: {event['error']}"
+                    break
+
+        except Exception as e:
+            logger.error(f"Error generating streaming final report: {e}")
+            yield f"抱歉，生成报告时出现错误: {str(e)}"
+    
+    def research(self, query: str, max_research_loops: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Conduct comprehensive research on a given query.
+        
+        Args:
+            query: The research question or topic
+            max_research_loops: Maximum number of research iterations (defaults to config value)
+            
+        Returns:
+            Dict[str, Any]: Dictionary containing the research results and metadata
+        """
+        # Use config value if not specified
+        if max_research_loops is None:
+            max_research_loops = self.config.max_research_loops
+        logger.info(f"Starting research on: '{query}'")
+        start_time = datetime.now()
+
+        try:
+            # Step 0: Language Detection (if auto-detection is enabled)
+            detected_language = self._detect_and_set_language(query)
+            logger.info(f"Using language: {detected_language}")
+
+            # Step 1: Initial Research
+            research_findings = self._conduct_research_step(query)
+            
+            # Step 2: Analysis and Gap Identification
+            analysis_result = self._analyze_findings(query, research_findings)
+            print(f"🔍 analysis_result: {analysis_result}")
+            # Step 3: Additional Research (if needed)
+            research_loop_count = 1
+            while research_loop_count < max_research_loops:
+                if self._needs_additional_research(str(analysis_result)):
+                    logger.info(f"Starting research loop {research_loop_count}")
+                    additional_research = self._conduct_additional_research(query, analysis_result)
+                    
+                    # Re-analyze with new information
+                    combined_findings = f"{research_findings}\n\n--- Additional Research ---\n\n{additional_research}"
+                    analysis_result = self._analyze_findings(query, combined_findings)
+                    research_findings = combined_findings
+                    research_loop_count += 1
+                else:
+                    break
+            
+            # Step 4: Final Report Generation
+            final_report = self._generate_final_report(query, analysis_result, research_findings)
+            
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"Research complete in {duration:.2f} seconds with {research_loop_count} research loops")
+            
+            return {
+                "query": query,
+                "final_report": str(final_report),
+                "research_findings": str(research_findings),
+                "analysis": str(analysis_result),
+                "research_loops": research_loop_count,
+                "timestamp": datetime.now().isoformat(),
+                "duration_seconds": duration
+            }
+        except Exception as e:
+            logger.error(f"Research failed: {e}")
+            return {
+                "query": query,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+                "status": "failed"
+            }
+    
+
+    async def research_stream(self, query: str, max_research_loops: Optional[int] = None) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Conduct comprehensive research with streaming updates.
+
+        Args:
+            query: The research question or topic
+            max_research_loops: Maximum number of research iterations (defaults to config value)
+
+        Yields:
+            Dictionary containing streaming updates
+        """
+        # Use config value if not specified
+        if max_research_loops is None:
+            max_research_loops = self.config.max_research_loops
+        try:
+            # Language Detection (if auto-detection is enabled)
+            detected_language = self._detect_and_set_language(query)
+            logger.info(f"Using language: {detected_language}")
+
+            # Enhanced initial status with comprehensive initialization info
+            from .utils.language_detector import LanguageDetector
+            language_display_name = LanguageDetector.get_language_display_name(detected_language)
+
+            initialization_info = self._generate_initialization_info(query, detected_language, max_research_loops)
+
+            yield {
+                'type': 'status',
+                'message': f'🚀 Starting research for query: "{query[:50]}..."',
+                'progress': 5,
+                'step': 'initialization',
+                'stage': 'initialization',
+                'data': {
+                    'stage_output': initialization_info,
+                    'query': query,
+                    'detected_language': detected_language,
+                    'language_display': language_display_name,
+                    'max_loops': max_research_loops,
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+
+            await asyncio.sleep(0.2)  # Small delay for UI responsiveness
+
+            # System preparation status
+            yield {
+                'type': 'status',
+                'message': '⚙️ Preparing research agents...',
+                'progress': 10,
+                'step': 'system_preparation',
+                'stage': 'initialization',
+                'data': {
+                    'stage_output': f"""## 🔧 System Preparation
+
+### 🤖 Agent Status
+- **Researcher Agent**: ✅ Ready (Model: {self.config.query_generator_model.split(':')[0].split('.')[-1]})
+- **Analyst Agent**: ✅ Ready (Model: {self.config.reflection_model.split(':')[0].split('.')[-1]})
+- **Writer Agent**: ✅ Ready (Model: {self.config.answer_model.split(':')[0].split('.')[-1]})
+
+### 🛠️ Tools Available
+- **Search Tools**: ✅ Enhanced web search with fallback options
+- **Content Extraction**: ✅ Page content analyzer
+- **Query Generation**: ✅ Optimized search query generator
+
+### 🌐 Search Engines
+- **Primary**: Tavily API ({'✅ Available' if os.getenv('TAVILY_API_KEY') else '❌ Not configured'})
+- **Fallback**: Google Custom Search ({'✅ Available' if os.getenv('GOOGLE_API_KEY') else '❌ Not configured'})
+- **Backup**: DuckDuckGo, Wikipedia ✅ Available
+
+### 📝 Language Configuration
+- **Output Language**: {language_display_name}
+- **Auto-Detection**: {'✅ Enabled' if self.auto_detect_language else '❌ Disabled'}
+
+---
+🚀 **All systems ready. Starting research...**""",
+                    'agents_ready': True,
+                    'tools_available': ['enhanced_web_search', 'get_page_content', 'generate_search_queries'],
+                    'search_engines': {
+                        'tavily': bool(os.getenv('TAVILY_API_KEY')),
+                        'google': bool(os.getenv('GOOGLE_API_KEY')),
+                        'duckduckgo': True,
+                        'wikipedia': True
+                    }
+                }
+            }
+
+            await asyncio.sleep(0.3)  # Small delay for UI responsiveness
+
+            # Step 1: Initial Research with Streaming
+            yield {
+                'type': 'status',
+                'message': '📚 Collecting initial information...',
+                'progress': 15,
+                'step': 'initial_research',
+                'stage': 'research',
+                'data': {
+                    'stage_output': f"## Information Collection\n\n**Research Topic**: {query}\n**Search Strategy**: Multi-source information collection\n**Expected Sources**: Academic materials, news reports, official documents\n\nExecuting search..."
+                }
+            }
+
+            # Conduct streaming research
+            research_findings = ""
+            search_summaries = []
+
+            async for research_event in self._conduct_research_step_stream(query):
+                if research_event['type'] == 'research_chunk':
+                    # Stream research progress
+                    yield {
+                        'type': 'research_progress',
+                        'message': '🔍 Gathering information...',
+                        'progress': min(15 + len(research_event['accumulated']) * 0.01, 30),
+                        'step': 'research_streaming',
+                        'stage': 'research',
+                        'data': {
+                            'chunk': research_event['data'],
+                            'stage_output': f"## Information Collection Progress\n\n**Research Topic**: {query}\n**Current Progress**: Collecting data from multiple sources...\n\n**Latest Information**:\n{research_event['data']}"
+                        }
+                    }
+                elif research_event['type'] == 'tool_use':
+                    # Show tool usage
+                    yield {
+                        'type': 'tool_progress',
+                        'message': f'🛠️ Using {research_event["tool_name"]}...',
+                        'progress': min(20 + len(research_findings) * 0.005, 32),
+                        'step': 'tool_usage',
+                        'stage': 'research',
+                        'data': {
+                            'tool_name': research_event['tool_name'],
+                            'stage_output': f"## Tool Usage\n\n**Active Tool**: {research_event['tool_name']}\n**Purpose**: Information gathering\n**Status**: Processing..."
+                        }
+                    }
+                elif research_event['type'] == 'research_complete':
+                    research_findings = research_event['final_result']
+                    # Generate mock search summaries for compatibility
+                    search_summaries = self._generate_mock_search_summaries(query, research_findings)
+                    break
+                elif research_event['type'] == 'error':
+                    yield {
+                        'type': 'error',
+                        'message': f'Research error: {research_event["message"]}',
+                        'error': research_event['error'],
+                        'step': 'research_error',
+                        'stage': 'research'
+                    }
+                    return
+
+            # Generate search results summary for frontend
+            search_summary_output = self._generate_search_summary_output(search_summaries, query)
+
+            yield {
+                'type': 'progress',
+                'message': '✅ Initial research completed',
+                'progress': 35,
+                'step': 'initial_research_complete',
+                'stage': 'research',
+                'data': {
+                    'findings_preview': str(research_findings)[:200] + '...',
+                    'search_summaries': search_summaries,
+                    'stage_output': search_summary_output
+                }
+            }
+
+            await asyncio.sleep(0.1)
+
+            # Step 2: Analysis and Gap Identification with Streaming
+            yield {
+                'type': 'status',
+                'message': '🔬 Analyzing research results and identifying knowledge gaps...',
+                'progress': 45,
+                'step': 'analysis',
+                'stage': 'analysis',
+                'data': {
+                    'stage_output': f"## Analysis in Progress\n\n**Analysis Target**: Research findings for '{query}'\n**Analysis Method**: Comprehensive information evaluation\n**Objective**: Identify key knowledge points and potential gaps\n\nProcessing collected information..."
+                }
+            }
+
+            # Conduct streaming analysis
+            analysis_result = ""
+            async for analysis_event in self._analyze_findings_stream(query, research_findings):
+                if analysis_event['type'] == 'analysis_chunk':
+                    # Stream analysis progress
+                    yield {
+                        'type': 'analysis_progress',
+                        'message': '🔬 Analyzing information...',
+                        'progress': min(45 + len(analysis_event['accumulated']) * 0.01, 52),
+                        'step': 'analysis_streaming',
+                        'stage': 'analysis',
+                        'data': {
+                            'chunk': analysis_event['data'],
+                            'stage_output': f"## Analysis Progress\n\n**Analysis Target**: Research findings for '{query}'\n**Current Analysis**:\n{analysis_event['data']}"
+                        }
+                    }
+                elif analysis_event['type'] == 'analysis_complete':
+                    analysis_result = analysis_event['final_result']
+                    break
+                elif analysis_event['type'] == 'error':
+                    yield {
+                        'type': 'error',
+                        'message': f'Analysis error: {analysis_event["message"]}',
+                        'error': analysis_event['error'],
+                        'step': 'analysis_error',
+                        'stage': 'analysis'
+                    }
+                    return
+
+            yield {
+                'type': 'progress',
+                'message': '✅ Analysis completed',
+                'progress': 55,
+                'step': 'analysis_complete',
+                'stage': 'analysis',
+                'data': {
+                    'analysis_preview': str(analysis_result)[:200] + '...',
+                    'stage_output': f"## Analysis Results\n\n{str(analysis_result)[:600]}...\n\n**Analysis Method**: Comprehensive information evaluation\n**Key Findings**: Identified main knowledge points and potential gaps\n**Analysis Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                }
+            }
+
+            await asyncio.sleep(0.1)
+
+            # Step 3: Additional Research (if needed)
+            research_loop_count = 1
+            while research_loop_count < max_research_loops:
+                analysis_text = str(analysis_result).lower()
+                if any(phrase in analysis_text for phrase in [
+                    "additional research needed",
+                    "more information required",
+                    "knowledge gap",
+                    "insufficient information"
+                ]):
+                    yield {
+                        'type': 'status',
+                        'message': f'🔄 Conducting round {research_loop_count} additional research...',
+                        'progress': 60 + (research_loop_count * 10),
+                        'step': f'additional_research_{research_loop_count}',
+                        'stage': 'research',
+                        'data': {
+                            'stage_output': f"## Round {research_loop_count} Additional Research\n\n**Research Objective**: Fill knowledge gaps\n**Based on Analysis**: {str(analysis_result)[:200]}...\n\nExecuting deep search..."
+                        }
+                    }
+
+                    # Conduct additional research (non-streaming for now to maintain compatibility)
+                    additional_research = self.researcher_agent(
+                        f"Based on this analysis, conduct additional targeted research on '{query}':\n\n"
+                        f"{analysis_result}\n\n"
+                        f"Focus on filling the identified knowledge gaps."
+                    )
+
+                    # Re-analyze with new information (non-streaming for now)
+                    combined_findings = f"{research_findings}\n\n--- Additional Research ---\n\n{additional_research}"
+                    analysis_result = self.analyst_agent(
+                        f"Re-analyze the complete research findings about '{query}':\n\n{combined_findings}"
+                    )
+                    research_findings = combined_findings
+                    research_loop_count += 1
+
+                    yield {
+                        'type': 'progress',
+                        'message': f'✅ Round {research_loop_count-1} additional research completed',
+                        'progress': 65 + ((research_loop_count-1) * 10),
+                        'step': f'additional_research_{research_loop_count-1}_complete',
+                        'stage': 'research',
+                        'data': {
+                            'stage_output': f"## Round {research_loop_count-1} Additional Research Results\n\n{str(additional_research)[:500]}...\n\n**Research Depth**: Deep analysis\n**New Information**: Supplementary materials obtained\n**Completion Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        }
+                    }
+
+                    await asyncio.sleep(0.1)
+                else:
+                    break
+
+            # Step 4: Final Report Generation with Streaming
+            yield {
+                'type': 'status',
+                'message': '📝 Generating final report...',
+                'progress': 85,
+                'step': 'final_report',
+                'stage': 'report',
+                'data': {
+                    'stage_output': f"## Final Report Generation\n\n**Report Topic**: {query}\n**Based on**: Comprehensive research and analysis\n**Format**: Structured markdown report\n\nGenerating comprehensive report..."
+                }
+            }
+
+            # Start streaming report generation
+            yield {
+                'type': 'report_start',
+                'message': 'Starting report content generation...',
+                'progress': 87,
+                'step': 'report_streaming_start',
+                'stage': 'report'
+            }
+
+            final_report_chunks = []
+            async for chunk in self._generate_final_report_stream(query, str(analysis_result), str(research_findings)):
+                final_report_chunks.append(chunk)
+                yield {
+                    'type': 'report_chunk',
+                    'message': 'Generating report...',
+                    'progress': min(87 + len(final_report_chunks) * 0.5, 95),
+                    'step': 'report_streaming',
+                    'stage': 'report',
+                    'data': {
+                        'chunk': chunk
+                    }
+                }
+                await asyncio.sleep(0.01)  # Small delay for smooth streaming
+
+            final_report = ''.join(final_report_chunks)
+
+            yield {
+                'type': 'progress',
+                'message': '✅ Final report generation completed',
+                'progress': 95,
+                'step': 'final_report_complete',
+                'stage': 'report'
+            }
+
+            await asyncio.sleep(0.1)
+
+            # Final result
+            yield {
+                'type': 'complete',
+                'message': '🎉 Research completed!',
+                'progress': 100,
+                'step': 'complete',
+                'stage': 'complete',
+                'data': {
+                    'query': query,
+                    'final_report': final_report,
+                    'research_findings': str(research_findings),
+                    'analysis': str(analysis_result),
+                    'research_loops': research_loop_count,
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+
+        except Exception as e:
+            yield {
+                'type': 'error',
+                'message': f'Error occurred during research: {str(e)}',
+                'error': str(e),
+                'step': 'error',
+                'stage': 'error'
+            }
