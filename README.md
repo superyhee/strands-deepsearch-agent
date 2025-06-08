@@ -1,65 +1,163 @@
-# 网络研究代理系统（Research Agent System）
+# AI-Powered Research Assistant with Multi-Agent Architecture
 
-基于 Strands Agents 构建的多代理研究系统，用于全面的网络研究和信息收集。
+A comprehensive research automation system that leverages multiple specialized AI agents to gather, analyze, and synthesize information from the web, delivering structured research reports in multiple languages.
 
-## 系统架构
+This project combines a React-based frontend with a Python FastAPI backend to create an intuitive research experience. The system employs a multi-agent architecture with specialized researcher, analyst, and writer agents to deliver thorough and well-structured research reports. The application supports multiple languages, provides real-time progress updates, and offers configurable research depth levels.
 
-重构后的系统采用模块化设计，具有清晰的关注点分离和责任划分：
-
+## Repository Structure
 ```
-research_system/
-├── core/                # 核心系统组件
-│   ├── research_system.py  # 主系统类
-│   └── config.py        # 配置管理
-├── agents/              # 代理管理
-│   └── agent_factory.py # 创建和配置Agent的工厂
-├── services/            # 服务层
-│   ├── research_service.py  # 研究流程服务
-│   ├── analysis_service.py  # 分析服务
-│   └── report_service.py    # 报告生成服务
-├── tools/               # 工具组件
-│   ├── enhanced_search.py   # 增强搜索功能
-│   └── web_search.py    # 网络搜索工具
-└── utils/               # 工具类
-    ├── language_detector.py # 语言检测工具
-    ├── search_summary.py    # 搜索摘要处理
-    └── reporting_utils.py   # 报告生成工具
+.
+├── backend/                      # Python FastAPI backend application
+│   ├── src/agent/               # Core agent implementation
+│   │   ├── tools/               # Agent tools for search, analysis, and report generation
+│   │   └── utils/               # Utility functions and language detection
+├── frontend/                    # React TypeScript frontend application
+│   ├── src/                     # Frontend source code
+│   │   ├── components/          # React components including UI elements
+│   │   ├── hooks/              # Custom React hooks for research agent integration
+│   │   └── lib/                # Utility functions and shared code
+└── docker-compose.yml          # Docker composition for Redis, PostgreSQL, and API services
 ```
 
-## 主要组件
+## Usage Instructions
+### Prerequisites
+- Docker and Docker Compose
+- Node.js 20.x or later
+- Python 3.11 or later
+- AWS credentials for Bedrock API access
+- Optional: Google Search API credentials (falls back to DuckDuckGo if not provided)
 
-### 核心组件
+### Installation
 
-- **ResearchAgentSystem**: 整个研究系统的协调器
-- **ResearchConfig**: 系统配置管理
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd <repository-name>
+```
 
-### 代理工厂
+2. Backend setup:
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+pip install -e .
+```
 
-- **AgentFactory**: 创建和管理三种不同的代理（研究员、分析员、写作员）
+3. Frontend setup:
+```bash
+cd frontend
+npm install
+```
 
-### 服务
+4. Environment configuration:
+```bash
+# Create .env file in backend directory
+cp .env.example .env
+# Add your AWS credentials and optional API keys
+```
 
-- **ResearchService**: 管理研究过程和信息收集
-- **AnalysisService**: 负责分析研究结果和识别知识缺口
-- **ReportService**: 生成最终研究报告
+### Quick Start
 
-### 工具类
+1. Start the services using Docker Compose:
+```bash
+docker-compose up -d
+```
 
-- **LanguageDetector**: 语言检测和处理
-- **SearchSummaryProcessor**: 搜索结果摘要处理
-- **ReportFormatter**: 研究报告格式化
+2. Start the frontend development server:
+```bash
+cd frontend
+npm run dev
+```
 
-## 工作流程
+3. Access the application at http://localhost:5173/app
 
-1. **语言检测**: 自动检测查询语言并配置相应的代理
-2. **信息收集**: 研究员代理使用增强搜索工具收集信息
-3. **质量分析**: 分析员代理评估信息质量并识别知识缺口
-4. **额外研究**: 如果需要，进行额外的有针对性的研究
-5. **报告生成**: 写作员代理生成最终研究报告
+### More Detailed Examples
 
-## 技术特点
+1. Basic Research Query:
+```typescript
+// Submit a research query with low effort level
+await researchAgent.submit({
+  messages: [{
+    type: "human",
+    content: "What are the latest developments in quantum computing?"
+  }],
+  initial_search_query_count: 1,
+  max_research_loops: 1
+});
+```
 
-- **多代理协作**: 使用三个专业代理共同完成研究任务
-- **自适应语言**: 自动检测和适应多种语言
-- **流式输出**: 支持实时流式生成报告
-- **组件化设计**: 清晰的模块分离，易于维护和扩展
+2. Deep Research with Multiple Sources:
+```typescript
+// Submit a research query with high effort level
+await researchAgent.submit({
+  messages: [{
+    type: "human",
+    content: "Analyze the impact of artificial intelligence on healthcare"
+  }],
+  initial_search_query_count: 5,
+  max_research_loops: 3
+});
+```
+
+### Troubleshooting
+
+1. Backend Connection Issues:
+- Error: "Failed to connect to backend API"
+- Solution: 
+  ```bash
+  # Check if backend is running
+  curl http://localhost:8000/health
+  # Verify environment variables
+  cat backend/.env
+  ```
+
+2. Search API Issues:
+- Error: "Search API not responding"
+- Solution: Check API keys in environment variables and verify rate limits
+
+## Data Flow
+The system processes research requests through a multi-stage pipeline, coordinating between specialized AI agents for comprehensive results.
+
+```ascii
+[User Input] -> [Frontend] -> [FastAPI Backend] -> [Research Agent]
+                                                      |
+                                                      v
+[Final Report] <- [Writer Agent] <- [Analyst Agent] <- [Web Search/Analysis]
+```
+
+Key component interactions:
+1. Frontend submits research requests to FastAPI backend
+2. Research Agent generates optimized search queries
+3. Web searches are conducted with fallback options
+4. Analyst Agent verifies and synthesizes information
+5. Writer Agent generates structured final report
+6. Real-time updates streamed to frontend via SSE
+7. Results cached in Redis for performance
+
+## Infrastructure
+
+![Infrastructure diagram](./docs/infra.svg)
+
+### Redis
+- Type: Cache Service
+- Purpose: Temporary data storage and caching
+- Configuration: Default port 6379
+
+### PostgreSQL
+- Type: Database Service
+- Purpose: Persistent data storage
+- Port: 5433 (mapped from 5432)
+- Credentials: 
+  - Database: postgres
+  - User: postgres
+  - Password: postgres
+
+### API Service
+- Type: Docker Container
+- Image: claude-fullstack-strands-agent
+- Port: 8123 (mapped from 8000)
+- Dependencies: Redis and PostgreSQL services
+- Environment Variables:
+  - AWS credentials
+  - Search API keys
+  - Database connections
