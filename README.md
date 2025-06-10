@@ -6,9 +6,8 @@ This application combines a React-based frontend with a Python backend to provid
 
 The application supports configurable research depth, multiple search engines, and generates comprehensive reports with source citations. It includes features like language detection, search summaries preservation, and a responsive UI that provides clear visibility into the research process.
 
-![](./images/app.png)
-
 ## Repository Structure
+
 ```
 .
 ├── backend/                      # Python backend application
@@ -27,7 +26,9 @@ The application supports configurable research depth, multiple search engines, a
 ```
 
 ## Usage Instructions
+
 ### Prerequisites
+
 - Python 3.11 or higher
 - Node.js 20.x or higher
 - AWS account with Bedrock access
@@ -37,6 +38,7 @@ The application supports configurable research depth, multiple search engines, a
 ### Installation
 
 #### Backend Setup
+
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -52,6 +54,7 @@ run_backend.bat
 ```
 
 #### Frontend Setup
+
 ```bash
 cd frontend
 npm install
@@ -59,39 +62,26 @@ npm run dev
 ```
 
 #### Docker Setup
+
 ```bash
 docker build -t research-assistant .
 docker run -p 8000:8000 research-assistant
 ```
 
 ### Quick Start
+
 1. Access the application at `http://localhost:3000`
 2. Enter your research query in the input field
 3. Select research effort level (low/medium/high)
 4. Choose search engine preference
 5. Submit and monitor research progress
 
-### More Detailed Examples
-```typescript
-// Submit a research request with custom parameters
-const researchRequest = {
-  query: "Impact of artificial intelligence on healthcare",
-  effort: "high",
-  searchEngine: "tavily",
-  maxResearchLoops: 3
-};
-
-// Monitor research progress
-agent.on('progress', (event) => {
-  console.log(`Current stage: ${event.stage}`);
-  console.log(`Progress: ${event.progress}%`);
-});
-```
-
 ### Troubleshooting
 
 #### Common Issues
+
 1. Backend Connection Failed
+
 ```bash
 # Check if backend is running
 curl http://localhost:8001/health
@@ -101,11 +91,13 @@ cat backend/.env
 ```
 
 2. Search Results Not Appearing
+
 - Verify AWS credentials are configured
 - Check Tavily API key if using Tavily search
 - Review backend logs for search errors
 
 3. Frontend Development Server Issues
+
 ```bash
 # Clear npm cache
 npm cache clean --force
@@ -113,6 +105,7 @@ npm install
 ```
 
 ## Data Flow
+
 The application implements a multi-stage research process with specialized agents handling different aspects of information gathering and processing.
 
 ```ascii
@@ -129,6 +122,7 @@ The application implements a multi-stage research process with specialized agent
 ```
 
 Key Component Interactions:
+
 1. Research Agent initiates web searches and collects raw data
 2. Analysis Agent verifies and synthesizes collected information
 3. Writer Agent generates structured reports
@@ -143,8 +137,10 @@ Key Component Interactions:
 The application uses a containerized architecture with the following components:
 
 Lambda Functions:
+
 - strands-agent-api: Main application service handling research requests
 
 Databases:
+
 - langgraph-redis (Redis 6): Caching and session management
 - langgraph-postgres (PostgreSQL 16): Persistent storage
