@@ -8,6 +8,8 @@ The application supports configurable research depth, multiple search engines, a
 
 ![](./images/app.png)
 
+![](./images/app2.png)
+
 ## Repository Structure
 
 ```
