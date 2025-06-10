@@ -45,8 +45,8 @@ The application supports configurable research depth, multiple search engines, a
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/superyhee/strands-deepsearch-agent
+cd strands-deepsearch-agent
 
 # macOS/Linux
 cd backend
