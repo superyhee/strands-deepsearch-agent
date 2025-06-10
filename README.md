@@ -132,19 +132,3 @@ Key Component Interactions:
 3. Writer Agent generates structured reports
 4. Frontend streams progress updates and results
 5. Backend manages agent coordination and data flow
-6. Redis handles caching and state management
-7. PostgreSQL stores research history and results
-
-## Infrastructure
-
-![Infrastructure diagram](./docs/infra.svg)
-The application uses a containerized architecture with the following components:
-
-Lambda Functions:
-
-- strands-agent-api: Main application service handling research requests
-
-Databases:
-
-- langgraph-redis (Redis 6): Caching and session management
-- langgraph-postgres (PostgreSQL 16): Persistent storage
