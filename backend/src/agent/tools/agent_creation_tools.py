@@ -162,7 +162,6 @@ Create a comprehensive yet concise research report that transforms complex findi
 - Maintain conciseness (maximum 3000 words) without sacrificing substance
 - Prioritize practical, implementable conclusions 
 - Introduce more details and examples
-- Output in {current_language}
 """
         
         try:
