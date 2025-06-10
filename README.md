@@ -6,6 +6,8 @@ This application combines a React-based frontend with a Python backend to provid
 
 The application supports configurable research depth, multiple search engines, and generates comprehensive reports with source citations. It includes features like language detection, search summaries preservation, and a responsive UI that provides clear visibility into the research process.
 
+![](./images/app.png)
+
 ## Repository Structure
 
 ```
