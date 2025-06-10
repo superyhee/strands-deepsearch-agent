@@ -1,9 +1,8 @@
 [project]
 name = "agent"
 version = "0.0.1"
-description = "Backend for the LangGraph agent"
 authors = [
-    { name = "Philipp Schmid", email = "schmidphilipp1995@gmail.com" },
+    { name = "yang he", email = "superhe@gmail.com" },
 ]
 readme = "README.md"
 license = { text = "MIT" }
