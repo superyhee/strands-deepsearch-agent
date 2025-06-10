@@ -76,9 +76,8 @@ docker run -p 8000:8000 research-assistant
 
 1. Access the application at `http://localhost:3000`
 2. Enter your research query in the input field
-3. Select research effort level (low/medium/high)
-4. Choose search engine preference
-5. Submit and monitor research progress
+3. Choose search engine preference
+4. Submit and monitor research progress
 
 ### Troubleshooting
 
