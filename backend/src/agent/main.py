@@ -3,19 +3,18 @@
 import os
 import uvicorn
 from dotenv import load_dotenv
+from .utils.aws_credentials import print_aws_credential_status
 
 # Load environment variables
 load_dotenv()
 
 def main():
     """Run the FastAPI application."""
-    # Check for required environment variables
-    required_vars = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    
-    if missing_vars:
-        print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
-        print("Please set up your AWS credentials in the .env file")
+    # Check AWS credentials configuration
+    use_default_credentials = os.getenv("AWS_USE_DEFAULT_CREDENTIALS", "false").lower() == "true"
+
+    # Validate AWS credentials
+    if not print_aws_credential_status(use_default_credentials):
         return
     
     print("🚀 Starting Strands Agent Research API...")

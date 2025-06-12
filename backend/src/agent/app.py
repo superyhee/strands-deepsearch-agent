@@ -12,6 +12,7 @@ from pydantic import BaseModel
 import json
 import fastapi.exceptions
 from .research_agent import ResearchAgentSystem
+from .configuration import Configuration
 # from .simple_research_agent import ResearchAgentSystem
 
 # Define the FastAPI app
@@ -26,8 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize the research agent system with auto language detection
-research_system = ResearchAgentSystem(language="auto")
+# Initialize configuration from environment variables
+config = Configuration.from_runnable_config()
+
+# Initialize the research agent system with auto language detection and config
+research_system = ResearchAgentSystem(config=config, language="auto")
 
 
 class ResearchRequest(BaseModel):

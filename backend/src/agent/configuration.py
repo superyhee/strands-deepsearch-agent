@@ -2,6 +2,8 @@ import os
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 
+from langchain_core.runnables import RunnableConfig
+
 
 class Configuration(BaseModel):
     """The configuration for the agent."""
@@ -27,6 +29,44 @@ class Configuration(BaseModel):
         },
     )
 
+    # Model type configuration
+    model_type: str = Field(
+        default="bedrock",
+        metadata={
+            "description": "The type of model provider to use ('bedrock' or 'deepseek')."
+        },
+    )
+
+    # DeepSeek specific configuration
+    deepseek_model_id: str = Field(
+        default="deepseek-ai/DeepSeek-V3",
+        metadata={
+            "description": "The DeepSeek model ID to use when model_type is 'deepseek'."
+        },
+    )
+
+    deepseek_max_tokens: int = Field(
+        default=1000,
+        metadata={
+            "description": "Maximum tokens for DeepSeek model responses."
+        },
+    )
+
+    deepseek_temperature: float = Field(
+        default=0.7,
+        metadata={
+            "description": "Temperature for DeepSeek model response generation."
+        },
+    )
+
+    # AWS credential configuration
+    aws_use_default_credentials: bool = Field(
+        default=False,
+        metadata={
+            "description": "Whether to use AWS default credential chain when env vars are not set."
+        },
+    )
+
     number_of_initial_queries: int = Field(
         default=3,
         metadata={"description": "The number of initial search queries to generate."},
@@ -38,11 +78,17 @@ class Configuration(BaseModel):
     )
 
     @classmethod
-    def from_env(cls) -> "Configuration":
-        """Create a Configuration instance from environment variables."""
-        # Get raw values from environment variables
+    def from_runnable_config(
+        cls, config: Optional[RunnableConfig] = None
+    ) -> "Configuration":
+        """Create a Configuration instance from a RunnableConfig."""
+        configurable = (
+            config["configurable"] if config and "configurable" in config else {}
+        )
+
+        # Get raw values from environment or config
         raw_values: dict[str, Any] = {
-            name: os.environ.get(name.upper())
+            name: os.environ.get(name.upper(), configurable.get(name))
             for name in cls.model_fields.keys()
         }
 

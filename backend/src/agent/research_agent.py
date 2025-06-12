@@ -43,10 +43,29 @@ class ResearchAgentSystem:
         # Initialize language tools
         self.language_tools = LanguageTools(language)
 
-        # Create models using ModelTools
-        self.researcher_model = ModelTools.create_bedrock_model(self.config.query_generator_model)
-        self.analyst_model = ModelTools.create_bedrock_model(self.config.reflection_model)
-        self.writer_model = ModelTools.create_bedrock_model(self.config.answer_model)
+        # Create models using ModelTools based on configuration
+        if self.config.model_type.lower() == "deepseek":
+            # Use DeepSeek models for all agents
+            self.researcher_model = ModelTools.create_deepseek_model(
+                self.config.deepseek_model_id,
+                self.config.deepseek_max_tokens,
+                self.config.deepseek_temperature
+            )
+            self.analyst_model = ModelTools.create_deepseek_model(
+                self.config.deepseek_model_id,
+                self.config.deepseek_max_tokens,
+                self.config.deepseek_temperature
+            )
+            self.writer_model = ModelTools.create_deepseek_model(
+                self.config.deepseek_model_id,
+                self.config.deepseek_max_tokens,
+                self.config.deepseek_temperature
+            )
+        else:
+            # Use Bedrock models (default)
+            self.researcher_model = ModelTools.create_bedrock_model(self.config.query_generator_model)
+            self.analyst_model = ModelTools.create_bedrock_model(self.config.reflection_model)
+            self.writer_model = ModelTools.create_bedrock_model(self.config.answer_model)
 
         # Initialize agents with default language (will be recreated if language is auto-detected)
         self._current_language = "chinese" if self.language_tools.auto_detect_language else self.language_tools.language
@@ -57,7 +76,10 @@ class ResearchAgentSystem:
         # Initialize orchestrator agent (will be created after language detection)
         self.orchestrator_agent = None
 
-        logger.info(f"Research agent system initialized with models: researcher={self.config.query_generator_model}, analyst={self.config.reflection_model}, writer={self.config.answer_model}")
+        if self.config.model_type.lower() == "deepseek":
+            logger.info(f"Research agent system initialized with DeepSeek models: model_id={self.config.deepseek_model_id}, max_tokens={self.config.deepseek_max_tokens}, temperature={self.config.deepseek_temperature}")
+        else:
+            logger.info(f"Research agent system initialized with Bedrock models: researcher={self.config.query_generator_model}, analyst={self.config.reflection_model}, writer={self.config.answer_model}")
 
     
     
@@ -81,11 +103,18 @@ class ResearchAgentSystem:
             logger.info(f"Using language: {detected_language}")
 
             # Enhanced initial status with comprehensive initialization info
-            models_info = {
-                'researcher': self.config.query_generator_model.split(':')[0].split('.')[-1],
-                'analyst': self.config.reflection_model.split(':')[0].split('.')[-1],
-                'writer': self.config.answer_model.split(':')[0].split('.')[-1]
-            }
+            if self.config.model_type.lower() == "deepseek":
+                models_info = {
+                    'researcher': f"DeepSeek ({self.config.deepseek_model_id})",
+                    'analyst': f"DeepSeek ({self.config.deepseek_model_id})",
+                    'writer': f"DeepSeek ({self.config.deepseek_model_id})"
+                }
+            else:
+                models_info = {
+                    'researcher': self.config.query_generator_model.split(':')[0].split('.')[-1],
+                    'analyst': self.config.reflection_model.split(':')[0].split('.')[-1],
+                    'writer': self.config.answer_model.split(':')[0].split('.')[-1]
+                }
             
             initialization_info = self.language_tools.generate_initialization_info(
                 query, detected_language, max_research_loops, models_info

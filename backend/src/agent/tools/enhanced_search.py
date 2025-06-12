@@ -34,6 +34,7 @@ def enhanced_web_search(query: str, num_results: int = 10) -> str:
     # Try multiple search methods in order of preference
     search_methods = [
         _try_tavily_search,
+        _try_serpapi_search,
         _try_google_search,
         _try_duckduckgo_search,
         _try_wikipedia_search,
@@ -93,6 +94,43 @@ def _try_tavily_search(query: str, num_results: int, search_depth: str = "advanc
                 'source': 'Tavily'
             })
   
+    return results
+
+
+def _try_serpapi_search(query: str, num_results: int) -> List[Dict[str, Any]]:
+    """Try SerpAPI Search."""
+    api_key = os.getenv("SERPAPI_API_KEY")
+
+    if not api_key:
+        raise Exception("SerpAPI key not configured")
+
+    params = {
+        "api_key": api_key,
+        "engine": "google",
+        "q": query,
+        "google_domain": "google.com",
+        "gl": "us",
+        "hl": "en",
+        "num": min(num_results, 10)
+    }
+
+    url = "https://serpapi.com/search"
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+    results = []
+
+    # Process organic results
+    organic_results = data.get('organic_results', [])
+    for item in organic_results[:num_results]:
+        results.append({
+            'title': item.get('title', ''),
+            'link': item.get('link', ''),
+            'snippet': item.get('snippet', ''),
+            'source': 'SerpAPI'
+        })
+
     return results
 
 
@@ -214,34 +252,83 @@ def _try_news_search(query: str, num_results: int) -> List[Dict[str, Any]]:
 
 
 def _format_search_results(results: List[Dict[str, Any]], query: str) -> str:
-    """Format search results for the agent."""
+    """Format search results for the agent with enhanced DeepSeek API compatibility."""
     if not results:
         return f"No search results found for query: {query}"
 
     # Create detailed search summary
     sources = list(set([result.get('source', 'Unknown') for result in results if result.get('source')]))
 
-    formatted = f"""## 搜索结果总览
-**查询**: {query}
-**结果数量**: {len(results)}
-**信息来源**: {', '.join(sources)}
-**搜索时间**: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    # Enhanced cleaning function for DeepSeek API compatibility
+    def clean_text_for_deepseek(text: str) -> str:
+        """Clean text to ensure compatibility with DeepSeek API."""
+        if not text:
+            return ""
 
-## 详细结果
+        # Convert to string if not already
+        text = str(text)
+
+        # Remove null bytes and other problematic characters
+        text = text.replace('\x00', '')
+
+        # Remove or replace non-printable characters except common whitespace
+        import re
+        text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', ' ', text)
+
+        # Replace problematic Unicode characters that might cause issues
+        text = re.sub(r'[^\x20-\x7E\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]', ' ', text)
+
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+
+        # Ensure the string is not empty
+        if not text.strip():
+            return "N/A"
+
+        return text.strip()
+
+    # Clean query for safe display
+    clean_query = clean_text_for_deepseek(query)
+
+    formatted = f"""## Search Results Summary
+**Query**: {clean_query}
+**Results Count**: {len(results)}
+**Sources**: {', '.join([clean_text_for_deepseek(s) for s in sources])}
+**Search Time**: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Detailed Results
 
 """
 
     for i, result in enumerate(results, 1):
-        title = result.get('title', 'N/A')
-        url = result.get('link', 'N/A')
-        snippet = result.get('snippet', 'N/A')
-        source = result.get('source', 'N/A')
+        # Clean all text fields to ensure they are valid strings
+        title = clean_text_for_deepseek(result.get('title', 'N/A'))
+        url = str(result.get('link', 'N/A'))  # URLs should be ASCII-safe
+        snippet = clean_text_for_deepseek(result.get('snippet', 'N/A'))
+        source = clean_text_for_deepseek(result.get('source', 'N/A'))
 
-        formatted += f"### 结果 {i}: {title}\n"
-        formatted += f"**来源**: {source}\n"
-        formatted += f"**链接**: {url}\n"
-        formatted += f"**摘要**: {snippet}\n\n"
+        # Limit individual field lengths
+        title = title[:200] if len(title) > 200 else title
+        snippet = snippet[:500] if len(snippet) > 500 else snippet
+        source = source[:100] if len(source) > 100 else source
+
+        formatted += f"### Result {i}: {title}\n"
+        formatted += f"**Source**: {source}\n"
+        formatted += f"**URL**: {url}\n"
+        formatted += f"**Summary**: {snippet}\n\n"
         formatted += "---\n\n"
+
+    # Final cleanup of the entire formatted string
+    formatted = clean_text_for_deepseek(formatted)
+
+    # Limit total length to prevent API issues with DeepSeek
+    max_total_length = 2500  # Conservative limit for DeepSeek API
+    if len(formatted) > max_total_length:
+        formatted = formatted[:max_total_length] + "\n\n[Search results truncated due to length limit]"
+
+    # Ensure the result is a valid string
+    if not formatted or not formatted.strip():
+        return f"Search completed for query: {clean_query}, but no valid results could be formatted."
 
     return formatted
 
@@ -262,6 +349,7 @@ def enhanced_web_search_with_summary(query: str, num_results: int = 5) -> Tuple[
     # Try multiple search methods in order of preference
     search_methods = [
         _try_tavily_search,
+        _try_serpapi_search,
         _try_google_search,
         _try_duckduckgo_search,
         _try_wikipedia_search,
@@ -360,21 +448,52 @@ def get_page_content(url: str, max_chars: int = 4000) -> str:
             print(f"✅ 成功从 {url} 获取内容")
             # Convert HTML to Markdown
             markdown_content = md(str(soup))
-            
+
             # Clean up the markdown
             import re
             markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)  # Remove excess newlines
             markdown_content = markdown_content.strip()
-            
-            result = f"""## 网页内容: {soup.title.text if soup.title else url}
-**来源**: {url}
-**获取时间**: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+            # Enhanced content cleaning for DeepSeek API compatibility
+            def clean_content_for_deepseek(content: str) -> str:
+                """Clean content to ensure compatibility with DeepSeek API."""
+                if not content:
+                    return ""
+
+                # Remove null bytes and other problematic characters
+                content = content.replace('\x00', '')
+
+                # Remove or replace non-printable characters except common whitespace
+                content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', ' ', content)
+
+                # Replace problematic Unicode characters that might cause issues
+                content = re.sub(r'[^\x20-\x7E\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]', ' ', content)
+
+                # Normalize whitespace
+                content = re.sub(r'\s+', ' ', content)
+
+                return content.strip()
+
+            markdown_content = clean_content_for_deepseek(markdown_content)
+            title_text = clean_content_for_deepseek(soup.title.text if soup.title else "Web Page")
+
+            result = f"""## Web Content: {title_text}
+**Source**: {url}
+**Retrieved**: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 {markdown_content[:max_chars] if len(markdown_content) > max_chars else markdown_content}
 """
             if len(markdown_content) > max_chars:
-                result += "\n\n[内容已截断，超出字符限制]"
-            print(f"✅ 成功从 {result} 获取内容") 
+                result += "\n\n[Content truncated due to length limit]"
+
+            # Final cleanup of the result
+            result = clean_content_for_deepseek(result)
+
+            # Ensure the result is not empty
+            if not result or not result.strip():
+                return f"Successfully retrieved content from {url}, but content could not be properly formatted."
+
+            print(f"✅ Successfully retrieved content, length: {len(result)} characters")
             return result
             
         except ImportError:
@@ -398,6 +517,30 @@ def get_page_content(url: str, max_chars: int = 4000) -> str:
         
     except Exception as e:
         return f"Error fetching page content from {url}: {str(e)}"
+
+
+@tool
+def serpapi_search(query: str, num_results: int = 5) -> str:
+    """
+    使用SerpAPI搜索引擎进行网络搜索。
+
+    Args:
+        query: 搜索查询字符串
+        num_results: 返回的搜索结果数量（默认为5，最大为10）
+
+    Returns:
+        格式化的搜索结果，包含标题、URL和摘要
+    """
+    print(f"🔍 使用SerpAPI搜索: {query}")
+
+    try:
+        results = _try_serpapi_search(query, num_results)
+        if results:
+            return _format_search_results(results, query)
+        else:
+            return f"未找到与'{query}'相关的搜索结果"
+    except Exception as e:
+        return f"SerpAPI搜索失败: {str(e)}\n请检查SERPAPI_API_KEY环境变量是否已正确配置。"
 
 
 @tool
