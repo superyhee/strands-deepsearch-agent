@@ -11,6 +11,7 @@ The original monolithic `ResearchAgentSystem` class has been refactored into sev
 3. **AgentCreationTools**: For creating and managing research agents
 4. **ResearchTools**: For conducting research and analyzing findings
 5. **ReportTools**: For generating research reports
+6. **Enhanced Search**: For comprehensive web search with multiple fallback options
 
 ## Tool Classes
 
@@ -73,6 +74,44 @@ Generates final research reports based on findings and analysis.
 from .tools import ReportTools
 
 final_report = ReportTools.generate_final_report(writer_agent, query, analysis, findings)
+```
+
+### Enhanced Search (`enhanced_search.py`)
+
+Provides comprehensive web search functionality with multiple fallback options including Tavily, SerpAPI, Google Custom Search, GoogleSearch Library (free), DuckDuckGo, and Wikipedia.
+
+#### Search Methods (in order of preference):
+1. **Tavily Search** - Advanced AI-powered search (requires TAVILY_API_KEY)
+2. **SerpAPI** - Google search via API (requires SERPAPI_API_KEY)
+3. **Google Custom Search** - Official Google API (requires GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID)
+4. **GoogleSearch Library** - Free Google search without API keys (requires googlesearch-python package)
+5. **DuckDuckGo** - Privacy-focused search
+6. **Wikipedia** - Knowledge base search
+
+```python
+# Example usage
+from .tools import enhanced_web_search, googlesearch_library_search
+
+# Automatic fallback through all search methods
+results = enhanced_web_search("research topic", num_results=5)
+
+# Direct GoogleSearch library usage (free alternative to SerpAPI)
+results = googlesearch_library_search("粟伟 亚马逊云科技", num_results=5)
+```
+
+#### GoogleSearch Library Integration
+
+The system now includes the `googlesearch-python` library as a free alternative to SerpAPI:
+
+```python
+# Installation
+pip install googlesearch-python
+
+# Direct usage (as mentioned by user)
+from googlesearch import search
+results = search("粟伟 亚马逊云科技", advanced=True)
+for r in results:
+    print(r)
 ```
 
 ## Refactored ResearchAgentSystem

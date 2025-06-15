@@ -16,6 +16,14 @@ except ImportError:
     TAVILY_AVAILABLE = False
     TavilyClient = None
 
+# Conditional import for googlesearch
+try:
+    from googlesearch import search
+    GOOGLESEARCH_AVAILABLE = True
+except ImportError:
+    GOOGLESEARCH_AVAILABLE = False
+    search = None
+
 
 @tool
 def enhanced_web_search(query: str, num_results: int = 10) -> str:
@@ -36,6 +44,7 @@ def enhanced_web_search(query: str, num_results: int = 10) -> str:
         _try_tavily_search,
         _try_serpapi_search,
         _try_google_search,
+        _try_googlesearch_library,
         _try_duckduckgo_search,
         _try_wikipedia_search,
         _try_news_search
@@ -166,6 +175,44 @@ def _try_google_search(query: str, num_results: int) -> List[Dict[str, Any]]:
             })
     
     return results
+
+
+def _try_googlesearch_library(query: str, num_results: int) -> List[Dict[str, Any]]:
+    """Try googlesearch library (free Google search without API key)."""
+    if not GOOGLESEARCH_AVAILABLE:
+        raise Exception("googlesearch library not available")
+
+    try:
+        # Use the googlesearch library to perform search
+        # The search function returns URLs, we need to get titles and snippets separately
+        search_results = search(query, advanced=True, num_results=min(num_results, 10))
+
+        results = []
+        for result in search_results:
+            # The advanced=True option returns SearchResult objects with url, title, description
+            if hasattr(result, 'url') and hasattr(result, 'title'):
+                results.append({
+                    'title': result.title or 'No title available',
+                    'link': result.url,
+                    'snippet': getattr(result, 'description', '') or 'No description available',
+                    'source': 'GoogleSearch Library'
+                })
+            else:
+                # Fallback for simple URL results
+                results.append({
+                    'title': f"Search result for: {query}",
+                    'link': str(result),
+                    'snippet': 'No description available',
+                    'source': 'GoogleSearch Library'
+                })
+
+            if len(results) >= num_results:
+                break
+
+        return results
+
+    except Exception as e:
+        raise Exception(f"GoogleSearch library error: {str(e)}")
 
 
 def _try_duckduckgo_search(query: str, num_results: int) -> List[Dict[str, Any]]:
@@ -351,6 +398,7 @@ def enhanced_web_search_with_summary(query: str, num_results: int = 5) -> Tuple[
         _try_tavily_search,
         _try_serpapi_search,
         _try_google_search,
+        _try_googlesearch_library,
         _try_duckduckgo_search,
         _try_wikipedia_search,
         _try_news_search
@@ -547,17 +595,17 @@ def serpapi_search(query: str, num_results: int = 5) -> str:
 def tavily_search(query: str, search_depth: str = "advanced", num_results: int = 5) -> str:
     """
     使用Tavily搜索引擎进行网络搜索。
-    
+
     Args:
         query: 搜索查询字符串
         search_depth: 搜索深度，可选值为"basic"或"advanced"（默认为"advanced"）
         num_results: 返回的搜索结果数量（默认为5，最大为10）
-        
+
     Returns:
         格式化的搜索结果，包含标题、URL和摘要
     """
     print(f"🔍 使用Tavily搜索: {query}")
-    
+
     try:
         results = _try_tavily_search(query, num_results, search_depth)
         if results:
@@ -566,3 +614,27 @@ def tavily_search(query: str, search_depth: str = "advanced", num_results: int =
             return f"未找到与'{query}'相关的搜索结果"
     except Exception as e:
         return f"Tavily搜索失败: {str(e)}\n请检查TAVILY_API_KEY环境变量是否已正确配置。"
+
+
+@tool
+def googlesearch_library_search(query: str, num_results: int = 5) -> str:
+    """
+    使用googlesearch库进行免费的Google搜索（无需API密钥）。
+
+    Args:
+        query: 搜索查询字符串
+        num_results: 返回的搜索结果数量（默认为5，最大为10）
+
+    Returns:
+        格式化的搜索结果，包含标题、URL和摘要
+    """
+    print(f"🔍 使用GoogleSearch库搜索: {query}")
+
+    try:
+        results = _try_googlesearch_library(query, num_results)
+        if results:
+            return _format_search_results(results, query)
+        else:
+            return f"未找到与'{query}'相关的搜索结果"
+    except Exception as e:
+        return f"GoogleSearch库搜索失败: {str(e)}\n请确保已安装googlesearch-python库: pip install googlesearch-python"

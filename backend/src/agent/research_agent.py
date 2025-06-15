@@ -353,7 +353,7 @@ class ResearchAgentSystem:
 
             await asyncio.sleep(0.1)
 
-            # Final result
+            # Final result with all stage outputs preserved
             yield {
                 'type': 'complete',
                 'message': '🎉 Research completed!',
@@ -366,7 +366,21 @@ class ResearchAgentSystem:
                     'research_findings': str(research_findings),
                     'analysis': str(analysis_result),
                     'research_loops': research_loop_count,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    # Preserve all stage outputs for frontend switching
+                    'stage_outputs': {
+                        'initialization': initialization_info,
+                        'research': search_summary_output,
+                        'analysis': f"## Analysis Results\n\n{str(analysis_result)[:600]}...\n\n**Analysis Method**: Comprehensive information evaluation\n**Key Findings**: Identified main knowledge points and potential gaps\n**Analysis Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        'report': final_report
+                    },
+                    # Full content for each stage (not truncated)
+                    'full_stage_content': {
+                        'initialization': initialization_info,
+                        'research': str(research_findings),
+                        'analysis': str(analysis_result),
+                        'report': final_report
+                    }
                 }
             }
 
