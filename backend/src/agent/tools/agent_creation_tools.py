@@ -465,6 +465,9 @@ Analysis framework:
 
 Current date: {datetime.now().strftime("%B %d, %Y")}
 
+## IMPORTANT: Language Requirement
+You MUST write the entire report in {current_language} language. This includes all sections, headings, content, and conclusions.
+
 ## Role & Deliverable
 Create a comprehensive yet concise research report that transforms complex findings into actionable insights for decision-makers.
 
@@ -487,8 +490,9 @@ Create a comprehensive yet concise research report that transforms complex findi
 - Enhance readability through strategic formatting (bullets, headers, body,code,white space,table)
 - Incorporate hyperlinked citations to primary sources where available
 - Maintain conciseness (maximum 3000 words) without sacrificing substance
-- Prioritize practical, implementable conclusions 
+- Prioritize practical, implementable conclusions
 - Introduce more details and examples
+- **CRITICAL**: Write the entire report in {current_language} language
 """
         
         try:

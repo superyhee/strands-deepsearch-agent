@@ -68,7 +68,13 @@ class ResearchAgentSystem:
             self.writer_model = ModelTools.create_bedrock_model(self.config.answer_model)
 
         # Initialize agents with default language (will be recreated if language is auto-detected)
-        self._current_language = "chinese" if self.language_tools.auto_detect_language else self.language_tools.language
+        if self.language_tools.auto_detect_language:
+            # For auto-detection, use English as default and recreate agents after detection
+            self._current_language = "english"
+        else:
+            # Use configured language
+            self._current_language = self.language_tools.language
+
         self.researcher_agent = AgentCreationTools.create_researcher_agent(self.researcher_model, self._current_language)
         self.analyst_agent = AgentCreationTools.create_analyst_agent(self.analyst_model, self._current_language)
         self.writer_agent = AgentCreationTools.create_writer_agent(self.writer_model, self._current_language)
@@ -101,6 +107,15 @@ class ResearchAgentSystem:
             # Language Detection (if auto-detection is enabled)
             detected_language = self.language_tools.detect_and_set_language(query)
             logger.info(f"Using language: {detected_language}")
+
+            # Recreate agents with detected language if it's different from current
+            if detected_language != self._current_language:
+                logger.info(f"Language changed from {self._current_language} to {detected_language}, recreating agents...")
+                self._current_language = detected_language
+                self.researcher_agent = AgentCreationTools.create_researcher_agent(self.researcher_model, detected_language)
+                self.analyst_agent = AgentCreationTools.create_analyst_agent(self.analyst_model, detected_language)
+                self.writer_agent = AgentCreationTools.create_writer_agent(self.writer_model, detected_language)
+                logger.info(f"Agents recreated with language: {detected_language}")
 
             # Enhanced initial status with comprehensive initialization info
             if self.config.model_type.lower() == "deepseek":
