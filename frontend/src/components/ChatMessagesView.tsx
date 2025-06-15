@@ -4,6 +4,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Copy,
   CopyCheck,
+  FileText,
+  FileDown,
 } from "lucide-react";
 import { InputForm } from "@/components/InputForm";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import {
 
 import { StageOutput } from "@/hooks/useResearchAgent";
 import remarkGfm from "remark-gfm";
+import { ExportUtils } from "@/utils/exportUtils";
 
 // Helper function to convert ProcessedEvent to ResearchStage
 const convertEventsToStages = (
@@ -489,6 +492,9 @@ interface AiMessageBubbleProps {
   mdComponents: typeof mdComponents;
   handleCopy: (text: string, messageId: string) => void;
   copiedMessageId: string | null;
+  streamingReport?: string;
+  isReportStreaming?: boolean;
+  query?: string;
 }
 
 // AiMessageBubble Component
@@ -501,29 +507,177 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
   mdComponents,
   handleCopy,
   copiedMessageId,
+  streamingReport,
+  isReportStreaming,
+  query,
 }) => {
+  const [exportStatus, setExportStatus] = useState<{
+    type: 'md' | 'pdf' | null;
+    status: 'idle' | 'exporting' | 'success' | 'error';
+  }>({ type: null, status: 'idle' });
+
+  // Check if this is the final report message (contains comprehensive content)
+  const messageContent = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+  const isFinalReport = messageContent.length > 1000 && (
+    messageContent.includes('## ') ||
+    messageContent.includes('### ') ||
+    messageContent.includes('Conclusion') ||
+    messageContent.includes('Suggestions') ||
+    messageContent.includes('Summary')
+  );
+
+  const handleExportMarkdown = async () => {
+    console.log('🔄 Export Markdown clicked from AiMessageBubble', { messageContent: !!messageContent, query });
+
+    if (!messageContent) {
+      console.warn('❌ No message content available');
+      return;
+    }
+
+    setExportStatus({ type: 'md', status: 'exporting' });
+
+    try {
+      console.log('📝 Starting markdown export...');
+      const cleanContent = ExportUtils.cleanMarkdownForExport(messageContent, query || 'Research Report');
+      const filename = ExportUtils.generateFilename('research-report', 'md');
+      console.log('📁 Generated filename:', filename);
+
+      const success = ExportUtils.exportAsMarkdown(cleanContent, filename);
+      console.log('✅ Export result:', success);
+
+      if (success) {
+        setExportStatus({ type: 'md', status: 'success' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 2000);
+      } else {
+        setExportStatus({ type: 'md', status: 'error' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+      }
+    } catch (error) {
+      console.error('❌ Export markdown failed:', error);
+      setExportStatus({ type: 'md', status: 'error' });
+      setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+    }
+  };
+
+  const handleOpenInNewWindow = async () => {
+    console.log('🔄 Open in new window clicked from AiMessageBubble', { messageContent: !!messageContent, query });
+
+    if (!messageContent) {
+      console.warn('❌ No message content available');
+      return;
+    }
+
+    setExportStatus({ type: 'pdf', status: 'exporting' });
+
+    try {
+      console.log('🪟 Opening report in new window...');
+      const filename = ExportUtils.generateFilename('research-report', 'pdf');
+      console.log('📁 Generated filename:', filename);
+
+      // Use the message bubble element to open in new window
+      const success = await ExportUtils.exportAsPDF(`ai-message-${message.id}`, filename, query || 'Research Report');
+      console.log('✅ Window opened:', success);
+
+      if (success) {
+        setExportStatus({ type: 'pdf', status: 'success' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 2000);
+      } else {
+        setExportStatus({ type: 'pdf', status: 'error' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+      }
+    } catch (error) {
+      console.error('❌ Open window failed:', error);
+      setExportStatus({ type: 'pdf', status: 'error' });
+      setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+    }
+  };
+
   return (
-    <div className={`relative break-words flex flex-col `}>
+    <div id={`ai-message-${message.id}`} className={`relative break-words flex flex-col `}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content)}
+        {messageContent}
       </ReactMarkdown>
-      <Button
-        variant="default"
-        className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300 self-end"
-        onClick={() =>
-          handleCopy(
-            typeof message.content === "string"
-              ? message.content
-              : JSON.stringify(message.content),
-            message.id!
-          )
-        }
-      >
-        {copiedMessageId === message.id ? "Copied" : "Copy"}
-        {copiedMessageId === message.id ? <CopyCheck /> : <Copy />}
-      </Button>
+
+      {/* Button container */}
+      <div className="flex items-center gap-2 self-end mt-2">
+        {/* Copy Button */}
+        <Button
+          variant="default"
+          size="sm"
+          className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300"
+          onClick={() => handleCopy(messageContent, message.id!)}
+        >
+          {copiedMessageId === message.id ? "Copied" : "Copy"}
+          {copiedMessageId === message.id ? <CopyCheck className="w-4 h-4 ml-2" /> : <Copy className="w-4 h-4 ml-2" />}
+        </Button>
+
+        {/* Export buttons - only show for final report */}
+        {isFinalReport && (
+          <>
+            {/* Export Markdown Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportMarkdown}
+              disabled={exportStatus.type === 'md' && exportStatus.status === 'exporting'}
+              className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300"
+            >
+              {exportStatus.type === 'md' && exportStatus.status === 'exporting' ? (
+                <>
+                  <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
+                  Exporting...
+                </>
+              ) : exportStatus.type === 'md' && exportStatus.status === 'success' ? (
+                <>
+                  <CopyCheck className="w-4 h-4 mr-2" />
+                  Exported
+                </>
+              ) : exportStatus.type === 'md' && exportStatus.status === 'error' ? (
+                <>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Failed
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Export MD
+                </>
+              )}
+            </Button>
+
+            {/* Open in New Window Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenInNewWindow}
+              disabled={exportStatus.type === 'pdf' && exportStatus.status === 'exporting'}
+              className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300"
+            >
+              {exportStatus.type === 'pdf' && exportStatus.status === 'exporting' ? (
+                <>
+                  <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-neutral-400 border-t-transparent" />
+                  Opening...
+                </>
+              ) : exportStatus.type === 'pdf' && exportStatus.status === 'success' ? (
+                <>
+                  <CopyCheck className="w-4 h-4 mr-2" />
+                  Opened
+                </>
+              ) : exportStatus.type === 'pdf' && exportStatus.status === 'error' ? (
+                <>
+                  <FileDown className="w-4 h-4 mr-2" />
+                  Failed
+                </>
+              ) : (
+                <>
+                  <FileDown className="w-4 h-4 mr-2" />
+                  Open Print View
+                </>
+              )}
+            </Button>
+          </>
+        )}
+      </div>
     </div>
   );
 };
@@ -575,6 +729,10 @@ const ResearchInterface: React.FC<{
   onStageSelect,
 }) => {
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<{
+    type: 'md' | 'pdf' | null;
+    status: 'idle' | 'exporting' | 'success' | 'error';
+  }>({ type: null, status: 'idle' });
 
   const handleCopy = async (text: string) => {
     try {
@@ -584,6 +742,71 @@ const ResearchInterface: React.FC<{
       setTimeout(() => setCopiedText(null), 2000);
     } catch (err) {
       console.error("Failed to copy text: ", err);
+    }
+  };
+
+  const handleExportMarkdown = async () => {
+    console.log('🔄 Export Markdown clicked', { streamingReport: !!streamingReport, query });
+
+    if (!streamingReport) {
+      console.warn('❌ No streaming report content available');
+      return;
+    }
+
+    setExportStatus({ type: 'md', status: 'exporting' });
+
+    try {
+      console.log('📝 Starting markdown export...');
+      const cleanContent = ExportUtils.cleanMarkdownForExport(streamingReport, query);
+      const filename = ExportUtils.generateFilename('research-report', 'md');
+      console.log('📁 Generated filename:', filename);
+
+      const success = ExportUtils.exportAsMarkdown(cleanContent, filename);
+      console.log('✅ Export result:', success);
+
+      if (success) {
+        setExportStatus({ type: 'md', status: 'success' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 2000);
+      } else {
+        setExportStatus({ type: 'md', status: 'error' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+      }
+    } catch (error) {
+      console.error('❌ Export markdown failed:', error);
+      setExportStatus({ type: 'md', status: 'error' });
+      setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    console.log('🔄 Export PDF clicked', { streamingReport: !!streamingReport, query });
+
+    if (!streamingReport) {
+      console.warn('❌ No streaming report content available');
+      return;
+    }
+
+    setExportStatus({ type: 'pdf', status: 'exporting' });
+
+    try {
+      console.log('📄 Starting PDF export...');
+      const filename = ExportUtils.generateFilename('research-report', 'pdf');
+      console.log('📁 Generated filename:', filename);
+
+      const success = await ExportUtils.exportAsPDF('streaming-report-content', filename, query);
+      console.log('✅ Export result:', success);
+
+      if (success) {
+        setExportStatus({ type: 'pdf', status: 'success' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 2000);
+      } else {
+        setExportStatus({ type: 'pdf', status: 'error' });
+        setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
+      }
+    } catch (error) {
+      console.error('❌ Export PDF failed:', error);
+      setExportStatus({ type: 'pdf', status: 'error' });
+      setTimeout(() => setExportStatus({ type: null, status: 'idle' }), 3000);
     }
   };
 
@@ -653,13 +876,13 @@ const ResearchInterface: React.FC<{
                                 variant={selectedStageData.status === 'completed' ? 'default' : 'secondary'}
                                 className={selectedStageData.status === 'completed' ? 'bg-green-600' : 'bg-blue-600'}
                               >
-                                {selectedStageData.status === 'completed' ? '已完成' : '进行中'}
+                                {selectedStageData.status === 'completed' ? 'Completed' : 'Processing'}
                               </Badge>
                             </div>
                             <div className="flex items-center gap-2">
                               {isReportStreaming && (
                                 <span className="text-xs text-blue-400 bg-blue-900/20 px-2 py-1 rounded">
-                                  报告生成中
+                                  Generating report
                                 </span>
                               )}
                               <Button
@@ -668,7 +891,7 @@ const ResearchInterface: React.FC<{
                                 onClick={() => onStageSelect(null)}
                                 className="text-neutral-400 hover:text-neutral-200"
                               >
-                                返回报告
+                                Back to report
                               </Button>
                             </div>
                           </div>
@@ -695,8 +918,8 @@ const ResearchInterface: React.FC<{
                   <Card className="bg-neutral-800 border-neutral-600">
                     <CardContent className="p-4">
                       <div className="text-neutral-300 text-sm text-center">
-                        💡 点击左侧的阶段项目查看详细输出
-                        {isReportStreaming && "，或滚动到底部查看正在生成的最终报告"}
+                        💡 Click on the left items to view detailed output
+                        {isReportStreaming && ",or scroll to the bottom to view the final report being generated"}
                       </div>
                     </CardContent>
                   </Card>
@@ -810,31 +1033,38 @@ const ResearchInterface: React.FC<{
                     <h2 className="text-lg font-medium text-neutral-100">
                       Final Report
                     </h2>
-                    {streamingReport && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCopy(streamingReport)}
-                        className="border-neutral-600 text-neutral-300 hover:bg-neutral-700"
-                      >
-                        {copiedText === streamingReport ? (
-                          <>
-                            <CopyCheck className="w-4 h-4 mr-2" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 mr-2" />
-                            Copy
-                          </>
-                        )}
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {/* Copy Button */}
+                      {streamingReport && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleCopy(streamingReport)}
+                          className="border-neutral-600 text-neutral-300 hover:bg-neutral-700"
+                        >
+                          {copiedText === streamingReport ? (
+                            <>
+                              <CopyCheck className="w-4 h-4 mr-2" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 mr-2" />
+                              Copy
+                            </>
+                          )}
+                        </Button>
+                      )}
+
+                     
+                    </div>
                   </div>
-                  <StreamingReport
-                    content={streamingReport}
-                    isStreaming={isReportStreaming}
-                  />
+                  <div id="streaming-report-content">
+                    <StreamingReport
+                      content={streamingReport}
+                      isStreaming={isReportStreaming}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -979,6 +1209,9 @@ export function ChatMessagesView({
                     mdComponents={mdComponents}
                     handleCopy={handleCopy}
                     copiedMessageId={copiedMessageId}
+                    streamingReport={streamingReport}
+                    isReportStreaming={isReportStreaming}
+                    query={query}
                   />
                 )}
               </div>

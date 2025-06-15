@@ -359,10 +359,10 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
   // Helper function to get stage titles
   const getStageTitle = (stage: string): string => {
     const stageTitles: Record<string, string> = {
-      'initialization': '🚀 初始化',
-      'research': '📚 信息收集',
-      'analysis': '🔬 分析评估',
-      'report': '📝 报告生成'
+      'initialization': '🚀 Initialization',
+      'research': '📚 Information Collection',
+      'analysis': '🔬 Analysis Evaluation',
+      'report': '📝 Report Generation'
     };
     return stageTitles[stage] || stage;
   };
