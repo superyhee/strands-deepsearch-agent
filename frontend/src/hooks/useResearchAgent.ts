@@ -26,6 +26,15 @@ export interface ResearchResponse {
   };
 }
 
+export interface StageOutput {
+  stage: string;
+  title: string;
+  content: string;
+  fullContent: string;
+  timestamp: string;
+  status: 'pending' | 'active' | 'completed' | 'error';
+}
+
 export interface StreamUpdate {
   type:
     | "status"
@@ -33,7 +42,9 @@ export interface StreamUpdate {
     | "complete"
     | "error"
     | "report_start"
-    | "report_chunk";
+    | "report_chunk"
+    | "research_progress"
+    | "analysis_progress";
   message: string;
   progress?: number;
   step?: string;
@@ -52,6 +63,9 @@ export interface UseResearchAgentReturn {
   streamingReport: string;
   isReportStreaming: boolean;
   lastStreamUpdate: StreamUpdate | null;
+  stageOutputs: StageOutput[];
+  selectedStage: string | null;
+  setSelectedStage: (stage: string | null) => void;
   submit: (data: ResearchRequest) => Promise<void>;
   stop: () => void;
 }
@@ -68,6 +82,8 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
   const [lastStreamUpdate, setLastStreamUpdate] = useState<StreamUpdate | null>(
     null
   );
+  const [stageOutputs, setStageOutputs] = useState<StageOutput[]>([]);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
@@ -184,24 +200,30 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
     }
 
     // Extract stage from update or data
+    let newCurrentStage = currentStage;
     if (update.stage) {
+      newCurrentStage = update.stage;
       setCurrentStage(update.stage);
     } else if (
       update.data &&
       typeof update.data === "object" &&
       update.data.stage
     ) {
+      newCurrentStage = update.data.stage;
       setCurrentStage(update.data.stage);
     } else if (update.step) {
       // Map step to stage
       if (update.step === "initialization") {
+        newCurrentStage = "initialization";
         setCurrentStage("initialization");
       } else if (
         update.step.includes("research") ||
         update.step.includes("additional_research")
       ) {
+        newCurrentStage = "research";
         setCurrentStage("research");
       } else if (update.step.includes("analysis")) {
+        newCurrentStage = "analysis";
         setCurrentStage("analysis");
       } else if (
         update.step.includes("report") ||
@@ -209,8 +231,81 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
         update.step === "report_streaming" ||
         update.step === "report_streaming_start"
       ) {
+        newCurrentStage = "report";
         setCurrentStage("report");
       }
+    }
+
+    // Update existing stage outputs status when current stage changes
+    if (newCurrentStage !== currentStage) {
+      setStageOutputs(prev => {
+        const stageOrder = ['initialization', 'research', 'analysis', 'report'];
+        const activeStageIndex = stageOrder.indexOf(newCurrentStage);
+
+        return prev.map(stageOutput => {
+          const stageIndex = stageOrder.indexOf(stageOutput.stage);
+          let newStatus = stageOutput.status;
+
+          if (activeStageIndex > stageIndex) {
+            newStatus = 'completed';
+          } else if (activeStageIndex === stageIndex) {
+            newStatus = 'active';
+          }
+
+          return {
+            ...stageOutput,
+            status: newStatus
+          };
+        });
+      });
+    }
+
+    // Handle stage output updates
+    if (update.data?.stage_output && update.stage) {
+      const stageTitle = getStageTitle(update.stage);
+
+      // Determine stage status based on current stage and progress
+      let stageStatus: 'pending' | 'active' | 'completed' | 'error' = 'active';
+
+      if (update.type === 'complete') {
+        stageStatus = 'completed';
+      } else {
+        // Check if this stage is completed based on current stage progression
+        const stageOrder = ['initialization', 'research', 'analysis', 'report'];
+        const currentStageIndex = stageOrder.indexOf(update.stage);
+        const activeStageIndex = stageOrder.indexOf(newCurrentStage);
+
+        // If the active stage is ahead of this stage, mark this stage as completed
+        if (activeStageIndex > currentStageIndex) {
+          stageStatus = 'completed';
+        } else if (activeStageIndex === currentStageIndex) {
+          stageStatus = 'active';
+        } else {
+          stageStatus = 'pending';
+        }
+      }
+
+      const newStageOutput: StageOutput = {
+        stage: update.stage,
+        title: stageTitle,
+        content: update.data.stage_output,
+        fullContent: update.data.full_content || update.data.stage_output,
+        timestamp: new Date().toISOString(),
+        status: stageStatus
+      };
+
+      setStageOutputs(prev => {
+        const existingIndex = prev.findIndex(s => s.stage === update.stage);
+        if (existingIndex >= 0) {
+          // Update existing stage
+          const updated = [...prev];
+          updated[existingIndex] = newStageOutput;
+          return updated;
+        } else {
+          // Add new stage
+          return [...prev, newStageOutput];
+        }
+      });
     }
 
     if (update.type === "report_start") {
@@ -224,6 +319,20 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
       // Research completed, add final message
       setIsLoading(false); // Set loading to false when research is complete
       setIsReportStreaming(false);
+
+      // Store all stage outputs from the final data
+      if (update.data.stage_outputs) {
+        const finalStageOutputs: StageOutput[] = Object.entries(update.data.stage_outputs).map(([stage, content]) => ({
+          stage,
+          title: getStageTitle(stage),
+          content: content as string,
+          fullContent: update.data.full_stage_content?.[stage] || content as string,
+          timestamp: update.data.timestamp || new Date().toISOString(),
+          status: 'completed' as const
+        }));
+        setStageOutputs(finalStageOutputs);
+      }
+
       const finalMessage: Message = {
         type: "ai",
         content: update.data.final_report,
@@ -246,6 +355,17 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
       setStreamingReport(""); // Clear streaming report
     }
   }, []);
+
+  // Helper function to get stage titles
+  const getStageTitle = (stage: string): string => {
+    const stageTitles: Record<string, string> = {
+      'initialization': '🚀 初始化',
+      'research': '📚 信息收集',
+      'analysis': '🔬 分析评估',
+      'report': '📝 报告生成'
+    };
+    return stageTitles[stage] || stage;
+  };
 
   const stop = useCallback(() => {
     if (abortController) {
@@ -270,6 +390,9 @@ export function useResearchAgent(apiUrl: string): UseResearchAgentReturn {
     streamingReport,
     isReportStreaming,
     lastStreamUpdate,
+    stageOutputs,
+    selectedStage,
+    setSelectedStage,
     submit,
     stop,
   };

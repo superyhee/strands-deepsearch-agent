@@ -216,6 +216,10 @@ export default function App() {
               streamingReport={researchAgent.streamingReport}
               isReportStreaming={researchAgent.isReportStreaming}
               onShowDeepSearch={handleShowDeepSearch}
+              stageOutputs={researchAgent.stageOutputs}
+              selectedStage={researchAgent.selectedStage}
+              onStageSelect={researchAgent.setSelectedStage}
+              currentStage={researchAgent.currentStage}
             />
           )}
         </div>

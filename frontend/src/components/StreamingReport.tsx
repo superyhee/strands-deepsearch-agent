@@ -38,7 +38,7 @@ export const StreamingReport: React.FC<StreamingReportProps> = ({
   return (
     <Card
       ref={containerRef}
-      className={cn("bg-neutral-900 border-neutral-700", className)}
+      className={cn("bg-neutral-800 border-neutral-600", className)}
     >
       <CardContent className="p-4">
         {isStreaming && (
@@ -50,7 +50,7 @@ export const StreamingReport: React.FC<StreamingReportProps> = ({
           </div>
         )}
 
-        <div className="prose prose-sm max-w-none prose-invert max-h-[60vh] overflow-y-auto pr-4 scrollbar-custom text-white">
+        <div className="prose prose-sm max-w-none prose-invert max-h-[60vh] overflow-y-auto pr-4 scrollbar-custom text-neutral-100">
           <ReactMarkdown>{content}</ReactMarkdown>
           {isStreaming && (
             <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-1" />

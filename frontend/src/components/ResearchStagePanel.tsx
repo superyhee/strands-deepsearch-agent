@@ -8,8 +8,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
-import ReactMarkdown from "react-markdown";
+
 
 export interface ResearchStage {
   id: string;
@@ -27,6 +26,8 @@ interface ResearchStagePanelProps {
   stages: ResearchStage[];
   currentStage?: string;
   className?: string;
+  onStageClick?: (stageId: string) => void;
+  selectedStage?: string | null;
 }
 
 const getStageIcon = (
@@ -70,9 +71,16 @@ const getStatusIcon = (status: ResearchStage["status"]) => {
   }
 };
 
-const StageItem: React.FC<{ stage: ResearchStage; isActive: boolean }> = ({
+const StageItem: React.FC<{
+  stage: ResearchStage;
+  isActive: boolean;
+  onClick?: () => void;
+  isSelected?: boolean;
+}> = ({
   stage,
   isActive,
+  onClick,
+  isSelected,
 }) => {
   const duration =
     stage.startTime && stage.endTime
@@ -82,11 +90,14 @@ const StageItem: React.FC<{ stage: ResearchStage; isActive: boolean }> = ({
   return (
     <div
       className={cn(
-        "flex items-start gap-3 p-3 rounded-lg transition-all duration-200",
+        "flex items-start gap-3 p-3 rounded-lg transition-all duration-200 cursor-pointer",
         isActive
           ? "bg-neutral-800 border-l-4 border-blue-500"
-          : "hover:bg-neutral-800/50"
+          : isSelected
+          ? "bg-neutral-800 border-l-4 border-green-500"
+          : "hover:bg-neutral-800/50 hover:border-l-2 hover:border-neutral-500"
       )}
+      onClick={onClick}
     >
       <div className="flex flex-col items-center gap-2 mt-1">
         {getStageIcon(stage.icon, stage.status)}
@@ -143,36 +154,15 @@ const StageItem: React.FC<{ stage: ResearchStage; isActive: boolean }> = ({
   );
 };
 
-const StageOutput: React.FC<{ stage: ResearchStage }> = ({ stage }) => {
-  if (!stage.output) return null;
 
-  return (
-    <Card className="mt-4 bg-neutral-800 border-neutral-700">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          {getStageIcon(stage.icon, stage.status)}
-          <h4 className="font-medium text-sm text-neutral-100">
-            {stage.title}
-          </h4>
-        </div>
-        <div className="prose prose-sm max-w-none prose-invert">
-          <ReactMarkdown>{stage.output}</ReactMarkdown>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
 
 export const ResearchStagePanel: React.FC<ResearchStagePanelProps> = ({
   stages,
   currentStage,
   className,
+  onStageClick,
+  selectedStage,
 }) => {
-  const activeStage = stages.find((stage) => stage.id === currentStage);
-  const completedStages = stages.filter(
-    (stage) => stage.status === "completed"
-  );
-
   return (
     <div className={cn("space-y-4", className)}>
       {/* Stages Timeline */}
@@ -182,21 +172,13 @@ export const ResearchStagePanel: React.FC<ResearchStagePanelProps> = ({
             key={stage.id}
             stage={stage}
             isActive={stage.id === currentStage}
+            isSelected={stage.id === selectedStage}
+            onClick={() => onStageClick?.(stage.id)}
           />
         ))}
       </div>
 
-      {/* Active Stage Output */}
-      {/* {activeStage && activeStage.output && <StageOutput stage={activeStage} />} */}
 
-      {/* Completed Stages Output (collapsed) */}
-      {/* {completedStages.length > 0 && (
-        <div className="space-y-2">
-          {completedStages.map((stage) => (
-            <StageOutput key={`output-${stage.id}`} stage={stage} />
-          ))}
-        </div>
-      )} */}
     </div>
   );
 };

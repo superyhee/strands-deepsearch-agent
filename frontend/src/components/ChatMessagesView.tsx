@@ -2,24 +2,17 @@ import type React from "react";
 import type { Message } from "@langchain/langgraph-sdk";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Loader2,
   Copy,
   CopyCheck,
-  CheckCircle,
-  Clock,
-  Search,
-  BarChart3,
-  FileText,
 } from "lucide-react";
 import { InputForm } from "@/components/InputForm";
 import { Button } from "@/components/ui/button";
-import { useState, ReactNode, useEffect } from "react";
+import { useState, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  ActivityTimeline,
   ProcessedEvent,
 } from "@/components/ActivityTimeline"; // Assuming ActivityTimeline is in the same dir or adjust path
 import { StreamingReport } from "@/components/StreamingReport";
@@ -27,6 +20,8 @@ import {
   ResearchStagePanel,
   ResearchStage,
 } from "@/components/ResearchStagePanel";
+
+import { StageOutput } from "@/hooks/useResearchAgent";
 import remarkGfm from "remark-gfm";
 
 // Helper function to convert ProcessedEvent to ResearchStage
@@ -410,7 +405,7 @@ const mdComponents = {
   code: ({ className, children, ...props }: MdComponentProps) => (
     <code
       className={cn(
-        "bg-neutral-900 rounded px-1 py-0.5 font-mono text-xs",
+        "bg-neutral-700 rounded px-1 py-0.5 font-mono text-xs text-neutral-100",
         className
       )}
       {...props}
@@ -421,7 +416,7 @@ const mdComponents = {
   pre: ({ className, children, ...props }: MdComponentProps) => (
     <pre
       className={cn(
-        "bg-neutral-900 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3",
+        "bg-neutral-700 p-3 rounded-lg overflow-x-auto font-mono text-xs my-3 text-neutral-100",
         className
       )}
       {...props}
@@ -507,11 +502,6 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
   handleCopy,
   copiedMessageId,
 }) => {
-  // Determine which activity events to show and if it's for a live loading message
-  const activityForThisBubble =
-    isLastMessage && isOverallLoading ? liveActivity : historicalActivity;
-  const isLiveActivityForThisBubble = isLastMessage && isOverallLoading;
-
   return (
     <div className={`relative break-words flex flex-col `}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
@@ -556,6 +546,10 @@ interface ChatMessagesViewProps {
   streamingReport?: string;
   isReportStreaming?: boolean;
   onShowDeepSearch?: () => void;
+  stageOutputs?: StageOutput[];
+  selectedStage?: string | null;
+  onStageSelect?: (stage: string | null) => void;
+  currentStage?: string;
 }
 
 // New Research Interface Component
@@ -566,6 +560,9 @@ const ResearchInterface: React.FC<{
   streamingReport: string;
   isReportStreaming: boolean;
   onCopy: (text: string) => void;
+  stageOutputs?: StageOutput[];
+  selectedStage?: string | null;
+  onStageSelect?: (stage: string | null) => void;
 }> = ({
   query,
   stages,
@@ -573,6 +570,9 @@ const ResearchInterface: React.FC<{
   streamingReport,
   isReportStreaming,
   onCopy,
+  stageOutputs = [],
+  selectedStage,
+  onStageSelect,
 }) => {
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
@@ -598,150 +598,247 @@ const ResearchInterface: React.FC<{
         <div className="w-80 border-r border-neutral-700 bg-neutral-900 flex-shrink-0">
           <ScrollArea className="h-full">
             <div className="p-4">
-              <ResearchStagePanel stages={stages} currentStage={currentStage} />
+              {/* Streaming indicator when report is being generated */}
+              {isReportStreaming && !selectedStage && (
+                <div className="mb-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-300 text-sm">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                    正在生成最终报告...
+                  </div>
+                  <p className="text-xs text-blue-400/70 mt-1">
+                    点击任意阶段查看详细输出
+                  </p>
+                </div>
+              )}
+
+              <ResearchStagePanel
+                stages={stages}
+                currentStage={currentStage}
+                selectedStage={selectedStage}
+                onStageClick={(stageId) => {
+                  if (onStageSelect) {
+                    // 如果点击的是已选中的阶段，则取消选择（回到报告视图）
+                    if (selectedStage === stageId) {
+                      onStageSelect(null);
+                    } else {
+                      onStageSelect(stageId);
+                    }
+                  }
+                }}
+              />
             </div>
           </ScrollArea>
         </div>
 
         {/* Right Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden bg-neutral-800">
-          {/* Scrollable Content Container */}
+          <ScrollArea className="h-full">
+            <div className="p-6 space-y-6">
+              {/* Selected Stage Output Display */}
+              {stageOutputs && stageOutputs.length > 0 && selectedStage && onStageSelect && (
+                <div>
+                  {(() => {
+                    const selectedStageData = stageOutputs.find(s => s.stage === selectedStage);
+                    if (!selectedStageData) return null;
 
-          <div className="p-6 space-y-6 ">
-            {/* Stage Outputs Area */}
-            {!isReportStreaming && (
-              <div className="space-y-4">
-                {/* Show stages with output in priority order */}
-                {stages
-                  .filter(
-                    (stage) => stage.output && stage.output.trim().length > 0
-                  )
-                  .sort((a, b) => {
-                    // Priority order: research (with search summary) > other completed > active
-                    const aIsResearchWithSummary =
-                      a.id === "research" &&
-                      a.output?.includes("Search Results Summary");
-                    const bIsResearchWithSummary =
-                      b.id === "research" &&
-                      b.output?.includes("Search Results Summary");
-
-                    if (aIsResearchWithSummary && !bIsResearchWithSummary)
-                      return -1;
-                    if (!aIsResearchWithSummary && bIsResearchWithSummary)
-                      return 1;
-
-                    // Then by completion status
-                    if (a.status === "completed" && b.status !== "completed")
-                      return -1;
-                    if (a.status !== "completed" && b.status === "completed")
-                      return 1;
-
-                    // Finally by stage order
-                    const stageOrder = [
-                      "initialization",
-                      "research",
-                      "analysis",
-                      "report",
-                    ];
-                    return stageOrder.indexOf(a.id) - stageOrder.indexOf(b.id);
-                  })
-                  .map((stage) => (
-                    <div key={`stage-output-${stage.id}`}>
-                      <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-medium text-neutral-100">
-                          {stage.title} Output
-                        </h2>
-                        <div className="flex items-center gap-2">
-                          {stage.status === "completed" && (
-                            <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded">
-                              ✓ Completed
-                            </span>
-                          )}
-                          {stage.status === "active" && (
-                            <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded">
-                              ⏳ In Progress
-                            </span>
-                          )}
-                          {stage.id === "research" &&
-                            stage.output?.includes(
-                              "Search Results Summary"
-                            ) && (
-                              <span className="text-xs text-purple-400 bg-purple-400/10 px-2 py-1 rounded">
-                                🔍 Search Summary
-                              </span>
-                            )}
-                        </div>
-                      </div>
-                      <Card className="bg-neutral-900 border-neutral-700">
-                        <CardContent className="p-4">
-                          <div className="text-white prose prose-sm max-w-none prose-invert max-h-[60vh] overflow-y-auto">
+                    return (
+                      <Card className="bg-neutral-800 border-neutral-600">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <CardTitle className="text-lg text-neutral-100">
+                                {selectedStageData.title}
+                              </CardTitle>
+                              <Badge
+                                variant={selectedStageData.status === 'completed' ? 'default' : 'secondary'}
+                                className={selectedStageData.status === 'completed' ? 'bg-green-600' : 'bg-blue-600'}
+                              >
+                                {selectedStageData.status === 'completed' ? '已完成' : '进行中'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {isReportStreaming && (
+                                <span className="text-xs text-blue-400 bg-blue-900/20 px-2 py-1 rounded">
+                                  报告生成中
+                                </span>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onStageSelect(null)}
+                                className="text-neutral-400 hover:text-neutral-200"
+                              >
+                                返回报告
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-neutral-500">
+                            {new Date(selectedStageData.timestamp).toLocaleString('zh-CN')}
+                          </p>
+                        </CardHeader>
+                        <CardContent className="bg-neutral-800">
+                          <div className="prose prose-sm max-w-none prose-invert text-neutral-100">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {stage.output}
+                              {selectedStageData.fullContent}
                             </ReactMarkdown>
                           </div>
                         </CardContent>
                       </Card>
-                    </div>
-                  ))}
+                    );
+                  })()}
+                </div>
+              )}
 
-                {/* Show message if no outputs available */}
-                {stages.filter(
-                  (stage) => stage.output && stage.output.trim().length > 0
-                ).length === 0 && (
-                  <Card className="bg-neutral-900 border-neutral-700">
+              {/* Default Content: Show stage outputs when no stage is selected */}
+              {!selectedStage && (
+                <div className="mb-4">
+                  <Card className="bg-neutral-800 border-neutral-600">
                     <CardContent className="p-4">
-                      <div className="text-neutral-400 text-sm italic text-center">
-                        {currentStage === "initialization"
-                          ? "🚀 Initializing research process..."
-                          : currentStage === "research"
-                          ? "🔍 Collecting information..."
-                          : currentStage === "analysis"
-                          ? "🧠 Analyzing collected data..."
-                          : currentStage === "report"
-                          ? "📝 Generating final report..."
-                          : "Waiting for research to begin..."}
+                      <div className="text-neutral-300 text-sm text-center">
+                        💡 点击左侧的阶段项目查看详细输出
+                        {isReportStreaming && "，或滚动到底部查看正在生成的最终报告"}
                       </div>
                     </CardContent>
                   </Card>
-                )}
-              </div>
-            )}
+                </div>
+              )}
 
-            {/* Final Report Area */}
-            {(streamingReport || isReportStreaming) && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-medium text-neutral-100">
-                    Final Report
-                  </h2>
-                  {streamingReport && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleCopy(streamingReport)}
-                      className="border-neutral-600 text-neutral-300 hover:bg-neutral-700"
-                    >
-                      {copiedText === streamingReport ? (
-                        <>
-                          <CopyCheck className="w-4 h-4 mr-2" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copy
-                        </>
-                      )}
-                    </Button>
+              {!selectedStage && (
+                <div className="space-y-4">
+                  {/* Show stages with output in priority order */}
+                  {stages
+                    .filter(
+                      (stage) => stage.output && stage.output.trim().length > 0 &&
+                      // Don't show report stage output if streaming is active
+                      !(stage.id === "report" && isReportStreaming)
+                    )
+                    .sort((a, b) => {
+                      // Priority order: research (with search summary) > other completed > active
+                      const aIsResearchWithSummary =
+                        a.id === "research" &&
+                        a.output?.includes("Search Results Summary");
+                      const bIsResearchWithSummary =
+                        b.id === "research" &&
+                        b.output?.includes("Search Results Summary");
+
+                      if (aIsResearchWithSummary && !bIsResearchWithSummary)
+                        return -1;
+                      if (!aIsResearchWithSummary && bIsResearchWithSummary)
+                        return 1;
+
+                      // Then by completion status
+                      if (a.status === "completed" && b.status !== "completed")
+                        return -1;
+                      if (a.status !== "completed" && b.status === "completed")
+                        return 1;
+
+                      // Finally by stage order
+                      const stageOrder = [
+                        "initialization",
+                        "research",
+                        "analysis",
+                        "report",
+                      ];
+                      return stageOrder.indexOf(a.id) - stageOrder.indexOf(b.id);
+                    })
+                    .map((stage) => (
+                      <div key={`stage-output-${stage.id}`}>
+                        <div className="flex items-center justify-between mb-4">
+                          <h2 className="text-lg font-medium text-neutral-100">
+                            {stage.title} Output
+                          </h2>
+                          <div className="flex items-center gap-2">
+                            {stage.status === "completed" && (
+                              <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded">
+                                ✓ Completed
+                              </span>
+                            )}
+                            {stage.status === "active" && (
+                              <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-1 rounded">
+                                ⏳ In Progress
+                              </span>
+                            )}
+                            {stage.id === "research" &&
+                              stage.output?.includes(
+                                "Search Results Summary"
+                              ) && (
+                                <span className="text-xs text-purple-400 bg-purple-400/10 px-2 py-1 rounded">
+                                  🔍 Search Summary
+                                </span>
+                              )}
+                          </div>
+                        </div>
+                        <Card className="bg-neutral-800 border-neutral-600">
+                          <CardContent className="p-4">
+                            <div className="text-neutral-100 prose prose-sm max-w-none prose-invert max-h-[60vh] overflow-y-auto">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {stage.output}
+                              </ReactMarkdown>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    ))}
+
+                  {/* Show message if no outputs available */}
+                  {stages.filter(
+                    (stage) => stage.output && stage.output.trim().length > 0
+                  ).length === 0 && (
+                    <Card className="bg-neutral-800 border-neutral-600">
+                      <CardContent className="p-4">
+                        <div className="text-neutral-300 text-sm italic text-center">
+                          {currentStage === "initialization"
+                            ? "🚀 Initializing research process..."
+                            : currentStage === "research"
+                            ? "🔍 Collecting information..."
+                            : currentStage === "analysis"
+                            ? "🧠 Analyzing collected data..."
+                            : currentStage === "report"
+                            ? "📝 Generating final report..."
+                            : "Waiting for research to begin..."}
+                        </div>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
-                <StreamingReport
-                  content={streamingReport}
-                  isStreaming={isReportStreaming}
-                />
-              </div>
-            )}
-          </div>
+              )}
+
+              {/* Final Report Area - Only show when no stage is selected */}
+              {!selectedStage && (streamingReport || isReportStreaming) && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-medium text-neutral-100">
+                      Final Report
+                    </h2>
+                    {streamingReport && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopy(streamingReport)}
+                        className="border-neutral-600 text-neutral-300 hover:bg-neutral-700"
+                      >
+                        {copiedText === streamingReport ? (
+                          <>
+                            <CopyCheck className="w-4 h-4 mr-2" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 mr-2" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <StreamingReport
+                    content={streamingReport}
+                    isStreaming={isReportStreaming}
+                  />
+                </div>
+              )}
+            </div>
+          </ScrollArea>
         </div>
       </div>
     </div>
@@ -761,6 +858,10 @@ export function ChatMessagesView({
   streamingReport = "",
   isReportStreaming = false,
   onShowDeepSearch,
+  stageOutputs = [],
+  selectedStage = null,
+  onStageSelect,
+  currentStage = "",
 }: ChatMessagesViewProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -789,32 +890,32 @@ export function ChatMessagesView({
   );
 
   // Determine current stage based on current status and events
-  let currentStage = "";
+  let detectedCurrentStage = currentStage;
 
   // First check for active stages in events
   const activeStage = stages.find((stage) => stage.status === "active");
   if (activeStage) {
-    currentStage = activeStage.id;
-  } else {
-    // Fallback to status-based detection
+    detectedCurrentStage = activeStage.id;
+  } else if (!currentStage) {
+    // Fallback to status-based detection only if currentStage is not provided
     if (currentStatus.includes("init") || currentStatus.includes("start")) {
-      currentStage = "initialization";
+      detectedCurrentStage = "initialization";
     } else if (
       currentStatus.includes("collect") ||
       currentStatus.includes("search") ||
       currentStatus.includes("research")
     ) {
-      currentStage = "research";
+      detectedCurrentStage = "research";
     } else if (
       currentStatus.includes("analysis") ||
       currentStatus.includes("process")
     ) {
-      currentStage = "analysis";
+      detectedCurrentStage = "analysis";
     } else if (
       currentStatus.includes("report") ||
       currentStatus.includes("generate")
     ) {
-      currentStage = "report";
+      detectedCurrentStage = "report";
     }
   }
 
@@ -826,10 +927,13 @@ export function ChatMessagesView({
           <ResearchInterface
             query={query}
             stages={stages}
-            currentStage={currentStage}
+            currentStage={detectedCurrentStage}
             streamingReport={streamingReport}
             isReportStreaming={isReportStreaming}
             onCopy={(text) => console.log("Copied:", text)}
+            stageOutputs={stageOutputs}
+            selectedStage={selectedStage}
+            onStageSelect={onStageSelect}
           />
         </div>
         <div className="flex-shrink-0 border-t border-neutral-700 bg-neutral-800">
